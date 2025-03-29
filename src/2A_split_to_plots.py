@@ -124,12 +124,13 @@ def split_geometry(geometry, splitter):
 
 def process_polygon(footprint_row, centerline_gdf, smooth_centerline_gdf, target_area, extension_distance=50):
     """
-    Process a single polygon using its matching centerline.
+    Process a single polygon using centerline and its smoothed version.
     """
     unique_id = footprint_row["UniqueID"]
     polygon = footprint_row.geometry
     avg_width = footprint_row.get("avg_width", 0)
     max_width = avg_width + 10
+    print(unique_id)
     if max_width <= 5:
         max_width = 15
     if avg_width >= 9:
@@ -170,6 +171,7 @@ def process_polygons_parallel(footprint_gdf, centerline_gdf, smooth_centerline_g
     Process polygons in parallel using multiprocessing.
     """
     results = []
+    from concurrent.futures import ProcessPoolExecutor, as_completed
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         futures = [
             executor.submit(
@@ -224,22 +226,24 @@ def update_path_with_suffix(input_path: str, suffix: str) -> str:
 # ---------------------------
 @hydra.main(config_path="config", config_name="workflow", version_base=None)
 def main(cfg: DictConfig):
-    # Set up logging; default level INFO if not in config.
+    # Set up logging; use default INFO level if not provided in config.
     log_level = cfg.get("logging", {"level": "INFO"}).get("level", "INFO")
     logging.basicConfig(level=log_level)
     logging.info("Configuration:\n" + OmegaConf.to_yaml(cfg))
 
-    # Determine paths using configuration.
-    # Use the UniqueID output from the previous step for footprint.
+    # Determine paths:
+    # Footprint comes from the UniqueID process.
     footprint_path = update_path_with_suffix(cfg.dataset.ground_footprint, "_footprint_ID")
-    # For centerline, if smoothing was performed, use the smoothed file; otherwise, use the UniqueID centerline.
-    if cfg.smoothening.get("perform_smoothing", False):
-        centerline_path = update_path_with_suffix(cfg.dataset.centerline, "_smooth")
+    # For centerline, if splitting should use smoothed centerline (default true), then use the smoothed output;
+    # otherwise, use the regular UniqueID centerline output.
+    if cfg.split_to_plots.get("use_smooth_centerline", True):
+        centerline_path = update_path_with_suffix(cfg.dataset.centerline, "_centerline_ID_smooth")
     else:
         centerline_path = update_path_with_suffix(cfg.dataset.centerline, "_centerline_ID")
-    # For splitting, we need the smooth centerline. If smoothing was not performed, use the same file.
-    if cfg.smoothening.get("perform_smoothing", False):
-        smooth_centerline_path = update_path_with_suffix(cfg.dataset.centerline, "_smooth")
+    # For splitting, we need both the real centerline and the smooth one.
+    # If smoothing is not used, they are the same.
+    if cfg.split_to_plots.get("use_smooth_centerline", True):
+        smooth_centerline_path = update_path_with_suffix(cfg.dataset.centerline, "_centerline_ID_smooth")
     else:
         smooth_centerline_path = centerline_path
 
@@ -251,9 +255,7 @@ def main(cfg: DictConfig):
     extension_distance = cfg.split_to_plots.extension_distance
     max_splitter_length = cfg.split_to_plots.max_splitter_length_buffer
 
-    # Adjust output filename (prefix with "11_")
-    base_output_filename = os.path.basename(footprint_path).replace(".gpkg", f"_segments{segment_area}m2.gpkg")
-    output_filename = "11_" + base_output_filename.lstrip("10_")
+    output_filename = os.path.basename(footprint_path).replace(".gpkg", f"_segments{segment_area}m2.gpkg")
     output_path = os.path.join(output_dir, output_filename)
 
     logging.info(f"Footprint path (UniqueID output): {footprint_path}")
