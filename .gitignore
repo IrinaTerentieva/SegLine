@@ -8,6 +8,7 @@ hf_model/
 *.dat
 # Ignore all JSON files
 *.json
+*.xml
 
 # Ignore all TIFF files
 *.tif
