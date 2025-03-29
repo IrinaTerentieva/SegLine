@@ -21,14 +21,14 @@ def main():
     # - your utils scripts are in /home/irina/SegLine/src/utils/
     # - your config is in /home/irina/SegLine/src/config/
     # So from a utils script, the config directory is: ../config
-    config_dir = "config"  # relative path from the utils directory
+    config_dir = "src/config"  # relative path from the utils directory
 
     steps = [
-        "utils/assign_id.py",
-        "utils/smooth_centerline.py",
-        "utils/split_to_plots.py",
-        "utils/split_to_sides.py",
-        "utils/split_to_subplots.py"
+        "src/utils/assign_id.py",
+        "src/utils/smooth_centerline.py",
+        "src/utils/split_to_plots.py",
+        "src/utils/split_to_sides.py",
+        "src/utils/split_to_subplots.py"
     ]
 
     for step in steps:
