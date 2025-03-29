@@ -10,6 +10,7 @@ hf_model/
 *.json
 *.xml
 
+
 # Ignore all TIFF files
 *.tif
 *.tiff
