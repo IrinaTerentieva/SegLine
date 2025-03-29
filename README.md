@@ -61,35 +61,34 @@ The full segmentation pipeline consists of the following five steps:
 ## ⚙️ Configuration (YAML)
 
 The pipeline is controlled via Hydra configuration in workflow.yaml
-
 dataset:
-  ground_footprint: path/to/footprint.gpkg  # Output of FLM
-  ground_footprint_layer: null              # Optional: specify if GPKG has nested layers
-  centerline: path/to/centerline.gpkg       # Output of FLM
-  centerline_layer: null                    # Optional
+  ground_footprint: /path/to/footprint.gpkg          Output from FLM
+  ground_footprint_layer: null                       Optional if GPKG has multiple layers
+  centerline: /path/to/centerline.gpkg               Output from FLM
+  centerline_layer: null                             Optional
   debug: false
-  unique_id_length: 8                       # Length of randomly generated UniqueID
+  unique_id_length: 8
 
 smoothening:
-  use_assign_id_output: true                # Use output from assign_id step
-  centerline: null                          # Optional override
-  angle_threshold: 120                      # Lower values trigger more smoothing
-  buffer_distance: 2                        # Controls smoothing strength
+  use_assign_id_output: true
+  centerline: null                                   Override if not using assign_id output
+  angle_threshold: 120                               Lower = more aggressive smoothing
+  buffer_distance: 2
   num_workers: 8
 
 split_to_plots:
-  segment_area: 100                         # Target area for plot segments (m²)
-  max_splitter_length_buffer: 30            # Prevents oversplitting on curves
-  extension_distance: 50                    # How far to extend centerline before splitting
-  use_smooth_centerline: true               # Whether to use smoothed version for splitting
+  segment_area: 100                                  Target area per plot (m²)
+  max_splitter_length_buffer: 30                     Prevents over-splitting curves
+  extension_distance: 50                             Extend centerline ends before splitting
+  use_smooth_centerline: true
   num_workers: 8
 
 split_to_side:
-  segment_area: 100                         # Must match plot area
-  min_area: 5                               # Ignore small segments and merge with neighbors
+  segment_area: 100                                  Should match plot area
+  min_area: 5                                        Ignore tiny fragments
 
 split_to_subplots:
-  segment_area: 10                          # Target area for each subplot (m²)
+  segment_area: 10                                   Default subplot area (m²)
   extension_distance: 50
   max_splitter_length_buffer: 15
   num_workers: 8
