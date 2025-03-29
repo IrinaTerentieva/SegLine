@@ -14,33 +14,6 @@ SegLine was developed by the [Applied Geospatial Research Group](https://www.app
 
 ---
 
-## 📁 Project Structure
-
-SegLine/
-├── docs/                         # MkDocs documentation site
-│   ├── index.md                  # Homepage for documentation
-│   └── examples/                 # Example figures for each pipeline step
-│       ├── 1_line_footprint.png
-│       ├── ...
-│
-├── src/                          # Source code
-│   ├── utils/                    # Step-by-step scripts for segmentation
-│   │   ├── assign_id.py
-│   │   ├── smooth_centerline.py
-│   │   ├── split_to_plots.py
-│   │   ├── split_to_sides.py
-│   │   └── split_to_subplots.py
-│   │
-│   └── config/                   # Hydra configuration files
-│       ├── config.yaml           # Default config (used by scripts individually)
-│       └── workflow.yaml         # Master config for full pipeline
-│
-├── run_segmentation.py          # Pipeline runner (calls all step scripts)
-├── mkdocs.yml                   # MkDocs site configuration
-├── requirements.txt             # Python dependencies
-└── README.md                    # Project overview and usage (GitHub landing page)
-
-
 ## 🚀 Usage
 
 Run the full pipeline using:
