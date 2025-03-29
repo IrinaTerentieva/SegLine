@@ -16,6 +16,7 @@ hf_model/
 
 # Ignore Metaflow runtime data
 .metaflow/
+.idea/
 
 # Ignore Python cache and virtual environment directories
 __pycache__/
