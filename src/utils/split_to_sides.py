@@ -38,7 +38,7 @@ def get_edge_points(polygon, precision=3):
 def sort_segments_and_find_pairs(gdf):
     """
     Sort segments by orientation, assign sides, and find pairs based on shared edge points.
-    Returns a GeoDataFrame with a new "SegmentID" field.
+    Returns a GeoDataFrame with a new "plot_id" field.
     """
 
     def process_unique_id(subset):
@@ -54,7 +54,7 @@ def sort_segments_and_find_pairs(gdf):
         subset["side"] = 1  # Default side 1.
         half_rows = len(subset) // 2
         subset.iloc[half_rows:, subset.columns.get_loc("side")] = 0  # Second half: side 0.
-        subset["SegmentID"] = -1
+        subset["plot_id"] = -1
         segment_id = 0
         side_0 = subset[subset["side"] == 0]
         side_1 = subset[subset["side"] == 1]
@@ -66,8 +66,8 @@ def sort_segments_and_find_pairs(gdf):
                     continue
                 shared_points = row_0["edge_points"].intersection(row_1["edge_points"])
                 if len(shared_points) >= 2:  # Found a pair.
-                    subset.at[idx_0, "SegmentID"] = segment_id
-                    subset.at[idx_1, "SegmentID"] = segment_id
+                    subset.at[idx_0, "plot_id"] = segment_id
+                    subset.at[idx_1, "plot_id"] = segment_id
                     segment_id += 1
         return subset
 

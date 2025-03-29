@@ -186,7 +186,7 @@ def process_polygons_parallel(footprint_gdf, centerline_gdf, smooth_centerline_g
     split_polygons_gdf = gpd.GeoDataFrame(results, crs=footprint_gdf.crs)
     split_polygons_gdf['area'] = split_polygons_gdf['geometry'].area
     split_polygons_gdf = split_polygons_gdf.reset_index(drop=True)
-    split_polygons_gdf['plot_id'] = split_polygons_gdf.index
+    split_polygons_gdf['subplot_id'] = split_polygons_gdf.index
     split_polygons_gdf.to_file(output_path, driver="GPKG")
     print(f"Split polygons saved to: {output_path}")
 
