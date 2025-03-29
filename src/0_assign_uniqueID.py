@@ -44,14 +44,11 @@ def drop_fid_column(gdf):
 
 def assign_unique_ids_with_points(footprint_gdf, centerline_gdf, debug=False, unique_id_length=8):
     """
-    Use the centerline layer to match footprint polygons.
-    For each centerline, sample points along its geometry and check which footprint polygon
-    contains at least 5 of those points. The matching footprint polygon already has a UniqueID,
-    which is then used to mark the centerline. This process ensures that each corresponding area
-    (footprint polygon) receives a consistent UniqueID.
-
-    Note: Although centerline matching is performed for validation purposes, only the footprint
-    layer is output.
+    For each centerline, sample points along its geometry and determine
+    which footprint polygon contains at least 5 of those points.
+    The matching footprint polygon's UniqueID is then assigned to the centerline.
+    This process ensures that each corresponding area (footprint polygon)
+    has a consistent UniqueID, and the centerline inherits that UniqueID.
     """
     # Fix invalid geometries for both layers
     footprint_gdf["geometry"] = footprint_gdf["geometry"].apply(fix_invalid_geometry)
@@ -61,11 +58,11 @@ def assign_unique_ids_with_points(footprint_gdf, centerline_gdf, debug=False, un
     footprint_gdf = footprint_gdf[footprint_gdf["geometry"].notna()].copy()
     centerline_gdf = centerline_gdf[centerline_gdf["geometry"].notna()].copy()
 
-    # Ensure footprint polygons have a UniqueID (assigned randomly if missing)
+    # Ensure footprint polygons have a UniqueID (assign if missing)
     if "UniqueID" not in footprint_gdf.columns:
         footprint_gdf["UniqueID"] = footprint_gdf.index.map(lambda _: generate_random_id(unique_id_length))
 
-    # Initialize centerline UniqueID column for matching (not saved later)
+    # Prepare the centerline UniqueID column
     if "UniqueID" not in centerline_gdf.columns:
         centerline_gdf["UniqueID"] = None
 
@@ -105,24 +102,22 @@ def assign_unique_ids_with_points(footprint_gdf, centerline_gdf, debug=False, un
         else:
             logging.info(f"No matching polygon for Centerline ID {line_index}.")
 
-    # Return the updated footprint (for output) and the centerline (for logging/debug purposes)
     return footprint_gdf, centerline_gdf
 
 
-def update_path_with_id(input_path):
+def update_path_with_suffix(input_path: str, suffix: str) -> str:
     """
-    Update the input path to include '_ID' and save the updated file as a GeoPackage
-    in the same directory as the original file.
+    Update the input file path to include a suffix before the extension,
+    saving the output in the same folder as the input.
     """
-    # Remove 'file://' prefix if present
     if input_path.startswith("file://"):
         input_path = input_path[7:]
     dirname = os.path.dirname(input_path)
     filename = os.path.basename(input_path)
     if filename.endswith(".shp"):
-        updated_filename = filename.replace(".shp", "_ID.gpkg")
+        updated_filename = filename.replace(".shp", f"{suffix}.gpkg")
     else:
-        updated_filename = filename.replace(".gpkg", "_ID.gpkg")
+        updated_filename = filename.replace(".gpkg", f"{suffix}.gpkg")
     return os.path.join(dirname, updated_filename)
 
 
@@ -136,11 +131,23 @@ def save_footprint(footprint_gdf, footprint_updated_path):
         logging.error(f"Error saving Footprint GeoDataFrame: {e}")
 
 
-def read_vector_file(path, layer=None):
+def save_centerline(centerline_gdf, centerline_updated_path):
+    """Save the updated centerline GeoDataFrame to the specified path."""
+    try:
+        centerline_gdf = drop_fid_column(centerline_gdf)
+        centerline_gdf.to_file(centerline_updated_path, driver="GPKG", index=False)
+        logging.info(f"Centerline saved successfully at: {centerline_updated_path}")
+    except Exception as e:
+        logging.error(f"Error saving Centerline GeoDataFrame: {e}")
+
+
+def read_vector_file(path: str, layer: str = None) -> gpd.GeoDataFrame:
     """
-    Reads a vector file. If a layer is provided (e.g. for a GeoPackage),
+    Reads a vector file. If a layer is provided (e.g. for a GeoPackage with multiple layers),
     it reads that specific layer; otherwise, it reads the file normally.
     """
+    if path.startswith("file://"):
+        path = path[7:]
     if layer:
         return gpd.read_file(path, layer=layer)
     return gpd.read_file(path)
@@ -148,7 +155,6 @@ def read_vector_file(path, layer=None):
 
 @hydra.main(config_path="config", config_name="config", version_base=None)
 def main(cfg: DictConfig):
-    # Set up logging level from config
     logging.basicConfig(level=cfg.logging.level)
     logging.info("Configuration:\n" + OmegaConf.to_yaml(cfg))
 
@@ -168,16 +174,19 @@ def main(cfg: DictConfig):
     footprint_gdf = read_vector_file(footprint_path, layer=footprint_layer)
     centerline_gdf = read_vector_file(centerline_path, layer=centerline_layer)
 
-    # Perform matching so that each footprint polygon gets a consistent UniqueID.
+    # Perform matching so that each footprint polygon gets a consistent UniqueID,
+    # and centerline features receive the matching UniqueID.
     logging.info("Matching centerlines to footprint polygons...")
-    footprint_gdf, _ = assign_unique_ids_with_points(
+    footprint_gdf, centerline_gdf = assign_unique_ids_with_points(
         footprint_gdf, centerline_gdf, debug=debug_flag, unique_id_length=unique_id_length
     )
 
-    # Save only the footprint file (do not save the centerline layer) with UniqueIDs,
-    # placing the output in the same directory as the original footprint.
-    footprint_updated_path = update_path_with_id(footprint_path)
+    # Save both footprint and centerline files separately in the same folders as their inputs.
+    footprint_updated_path = update_path_with_suffix(footprint_path, "_footprint_ID")
+    centerline_updated_path = update_path_with_suffix(centerline_path, "_centerline_ID")
+
     save_footprint(footprint_gdf, footprint_updated_path)
+    save_centerline(centerline_gdf, centerline_updated_path)
 
 
 if __name__ == "__main__":
