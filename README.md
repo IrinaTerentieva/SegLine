@@ -1,4 +1,4 @@
-# 🌿 SegLine: Geospatial Segmentation Pipeline
+# 🌿 SegLine: Geospatial Pipeline for Segmentation of Linear Disturbances
 
 **SegLine** is a component of a reproducible pipeline for geospatial analysis of recovery across linear disturbances, including seismic lines and oil and gas exploration corridors. This tool is specifically designed to segment the footprint of linear disturbances into plots and subplots—units used for attribute extraction and for building decision trees to assess recovery status.
 
