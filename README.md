@@ -41,7 +41,7 @@ The full segmentation pipeline consists of the following five steps:
 2. **Smooth Centerlines** *(Optional)*  
    Reduces sharp angles in the centerlines using buffer-based smoothing to improve the quality of later segmentation.
 
-[Smoothed Centerline](docs/examples/2_smooth_centerline.png)
+![Smoothed Centerline](docs/examples/2_smooth_centerline.png)
 
 3. **Split to Plots**  
    Uses the centerline (original or smoothed) to split each polygon into two sides and segments the geometry into **plots** of a specified target area (e.g., 100 m²).
