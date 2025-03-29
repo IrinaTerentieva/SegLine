@@ -62,15 +62,14 @@ The full segmentation pipeline consists of the following five steps:
 ## ⚙️ Configuration (YAML)
 
 The pipeline is controlled via Hydra configuration in workflow.yaml
-dataset:
-  ground_footprint: /path/to/footprint.gpkg          Output from FLM
-  ground_footprint_layer: null                       Optional if GPKG has multiple layers
-  centerline: /path/to/centerline.gpkg               Output from FLM
-  centerline_layer: null                             Optional
-  debug: false
-  unique_id_length: 8
 
-smoothening:
+!dataset:
+  ground_footprint: Output from FLM
+  ground_footprint_layer: Optional if GPKG has multiple layers
+  centerline: Output from FLM
+  centerline_layer: Optional
+
+!smoothening:
   use_assign_id_output: true
   centerline: null                                   Override if not using assign_id output
   angle_threshold: 120                               Lower = more aggressive smoothing
