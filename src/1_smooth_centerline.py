@@ -142,7 +142,7 @@ def main(cfg: DictConfig):
     logging.info("Configuration:\n" + OmegaConf.to_yaml(cfg))
 
     # Extract assign_ID and smoothening parameters from configuration
-    assign_cfg = cfg.assign_ID
+    assign_cfg = cfg.dataset
     smooth_cfg = cfg.smoothening
 
     # Build centerline input from assign_ID output if requested.

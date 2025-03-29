@@ -159,7 +159,7 @@ def main(cfg: DictConfig):
     logging.info("Configuration:\n" + OmegaConf.to_yaml(cfg))
 
     # Use the assign_ID configuration subset
-    assign_cfg = cfg.assign_ID
+    assign_cfg = cfg.dataset
     footprint_path = assign_cfg.ground_footprint
     footprint_layer = assign_cfg.get("ground_footprint_layer", None)
     centerline_path = assign_cfg.centerline
