@@ -55,6 +55,7 @@ The full segmentation pipeline consists of the following five steps:
 
 5. **Split to Subplots**  
    Each side is further split into equal-area **subplots** (e.g., 10 m²), and each is assigned a `subplot_id` for fine-scale analysis.
+
 ![Segmenting to Subplots](docs/examples/5_subplots.png)
 
 ---
