@@ -233,16 +233,16 @@ def main(cfg: DictConfig):
 
     # Determine paths:
     # Footprint comes from the UniqueID process.
-    footprint_path = update_path_with_suffix(cfg.dataset.ground_footprint, "_footprint_ID")
+    footprint_path = update_path_with_suffix(cfg.dataset.ground_footprint, "_sides")
     # For centerline, if splitting should use smoothed centerline (default true), then use the smoothed output;
     # otherwise, use the regular UniqueID centerline output.
-    if cfg.split_to_plots.get("use_smooth_centerline", True):
+    if cfg.split_to_subplots.get("use_smooth_centerline", True):
         centerline_path = update_path_with_suffix(cfg.dataset.centerline, "_centerline_ID_smooth")
     else:
         centerline_path = update_path_with_suffix(cfg.dataset.centerline, "_centerline_ID")
     # For splitting, we need both the real centerline and the smooth one.
     # If smoothing is not used, they are the same.
-    if cfg.split_to_plots.get("use_smooth_centerline", True):
+    if cfg.split_to_subplots.get("use_smooth_centerline", True):
         smooth_centerline_path = update_path_with_suffix(cfg.dataset.centerline, "_centerline_ID_smooth")
     else:
         smooth_centerline_path = centerline_path
@@ -250,12 +250,12 @@ def main(cfg: DictConfig):
     # Use the same folder as the input file for output.
     output_dir = os.path.dirname(footprint_path)
 
-    num_workers = cfg.split_to_plots.num_workers
-    segment_area = int(cfg.split_to_plots.segment_area)
-    extension_distance = cfg.split_to_plots.extension_distance
-    max_splitter_length = cfg.split_to_plots.max_splitter_length_buffer
+    num_workers = cfg.split_to_subplots.num_workers
+    segment_area = int(cfg.split_to_subplots.segment_area)
+    extension_distance = cfg.split_to_subplots.extension_distance
+    max_splitter_length = cfg.split_to_subplots.max_splitter_length_buffer
 
-    output_filename = os.path.basename(footprint_path).replace(".gpkg", f"_segments{segment_area}m2.gpkg")
+    output_filename = os.path.basename(footprint_path).replace("sides.gpkg", f"_subplots{segment_area}m2.gpkg")
     output_path = os.path.join(output_dir, output_filename)
 
     logging.info(f"Footprint path (UniqueID output): {footprint_path}")
