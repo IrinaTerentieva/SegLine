@@ -153,7 +153,7 @@ def read_vector_file(path: str, layer: str = None) -> gpd.GeoDataFrame:
     return gpd.read_file(path)
 
 
-@hydra.main(config_path="config", config_name="config", version_base=None)
+@hydra.main(config_path="../../config", config_name="config", version_base=None)
 def main(cfg: DictConfig):
     logging.basicConfig(level=cfg.logging.level)
     logging.info("Configuration:\n" + OmegaConf.to_yaml(cfg))
