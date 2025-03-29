@@ -3,13 +3,15 @@ import math
 import logging
 import geopandas as gpd
 import numpy as np
-from shapely.geometry import LineString, Point
-from shapely.ops import substring
+import matplotlib.pyplot as plt
+from shapely.geometry import LineString, Point, MultiLineString
+from shapely.ops import substring, linemerge
 from multiprocessing import Pool, cpu_count
 from tqdm import tqdm
 from functools import partial
 import hydra
 from omegaconf import DictConfig, OmegaConf
+import random
 
 # -----------------------------
 # Geometry smoothing functions
@@ -21,8 +23,8 @@ def calculate_angle(p1: Point, p2: Point, p3: Point) -> float:
     dx1, dy1 = p2.x - p1.x, p2.y - p1.y
     dx2, dy2 = p3.x - p2.x, p3.y - p2.y
     dot_product = dx1 * dx2 + dy1 * dy2
-    magnitude1 = math.sqrt(dx1 ** 2 + dy1 ** 2)
-    magnitude2 = math.sqrt(dx2 ** 2 + dy2 ** 2)
+    magnitude1 = math.sqrt(dx1**2 + dy1**2)
+    magnitude2 = math.sqrt(dx2**2 + dy2**2)
     if magnitude1 == 0 or magnitude2 == 0:
         return 180  # Treat as straight line if any segment is zero length
     angle_rad = math.acos(dot_product / (magnitude1 * magnitude2))
@@ -52,7 +54,10 @@ def smooth_within_buffer(line: LineString, bad_point: Point, buffer_distance: fl
 def smooth_centerline(line: LineString, angle_threshold: float = 130, buffer_distance: float = 2) -> LineString:
     """
     Smooth vertices of a LineString if their angles fall outside the acceptable range.
+    If the input geometry is a MultiLineString, merge it first.
     """
+    if isinstance(line, MultiLineString):
+        line = linemerge(line)
     if not isinstance(line, LineString) or len(line.coords) < 3:
         return line
     coords = [Point(coord) for coord in line.coords]
@@ -166,6 +171,7 @@ def main(cfg: DictConfig):
 
     # Process and smooth the centerlines using multiprocessing
     logging.info("Smoothing centerlines...")
+    original_gdf = centerline_gdf.copy()
     smoothed_gdf = process_centerlines(centerline_gdf, angle_threshold=angle_threshold,
                                        buffer_distance=buffer_distance, num_workers=num_workers)
 
