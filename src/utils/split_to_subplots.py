@@ -257,7 +257,7 @@ def main(cfg: DictConfig):
     extension_distance = cfg.split_to_subplots.extension_distance
     max_splitter_length = cfg.split_to_subplots.max_splitter_length_buffer
 
-    output_filename = os.path.basename(footprint_path).replace("sides.gpkg", f"_subplots{segment_area}m2.gpkg")
+    output_filename = os.path.basename(footprint_path).replace("sides.gpkg", f"subplots{segment_area}m2.gpkg")
     output_path = os.path.join(output_dir, output_filename)
 
     logging.info(f"Footprint path (UniqueID output): {footprint_path}")

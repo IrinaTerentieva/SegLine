@@ -91,7 +91,7 @@ def update_path_with_id(input_path, output_dir):
 # ---------------------------
 # Main processing function using Hydra
 # ---------------------------
-@hydra.main(config_path="config", config_name="workflow", version_base=None)
+@hydra.main(config_path="../../config", config_name="workflow", version_base=None)
 def main(cfg: DictConfig):
     # Set up logging (default INFO level if not specified)
     log_level = cfg.get("logging", {"level": "INFO"}).get("level", "INFO")

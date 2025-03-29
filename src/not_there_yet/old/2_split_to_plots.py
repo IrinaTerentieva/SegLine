@@ -224,7 +224,7 @@ def update_path_with_suffix(input_path: str, suffix: str) -> str:
 # ---------------------------
 # Main processing function using Hydra
 # ---------------------------
-@hydra.main(config_path="config", config_name="workflow", version_base=None)
+@hydra.main(config_path="../../config", config_name="workflow", version_base=None)
 def main(cfg: DictConfig):
     # Set up logging; use default INFO level if not provided in config.
     log_level = cfg.get("logging", {"level": "INFO"}).get("level", "INFO")
