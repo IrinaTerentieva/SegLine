@@ -1,0 +1,41 @@
+site_name: SegLine - Pipeline for Segmentation of Linear Disturbances
+site_description: A modular, reproducible pipeline for splitting linear disturbances into hierarchical segments and plots.
+site_author: Irina Terenteva, PhD
+repo_url: https://github.com/IrroIrro/segline  # replace if needed
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - toc.integrate
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - search.share
+nav:
+  - Home: index.md
+  - Assign ID: steps/assign_id.md
+  - Smooth Centerline: steps/smooth_centerline.md
+  - Split to Plots: steps/split_to_plots.md
+  - Split to Sides: steps/split_to_sides.md
+  - Split to Subplots: steps/split_to_subplots.md
+  - Configuration: config.md
+markdown_extensions:
+  - admonition
+  - codehilite
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.emoji:
+      emoji_generator: !!python/name:pymdownx.emoji.to_svg
+extra_css:
+  - stylesheets/extra.css

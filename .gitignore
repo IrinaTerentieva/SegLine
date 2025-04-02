@@ -59,12 +59,11 @@ HF_models/*/*.pth
 
 # Ignore other project-specific data or temporary files
 *.h5
-*.yaml
-*.yml
 *.ckpt
 *.pth
 *.pt
 *.onnx
+outputs
 
 # Ignore large data files
 *.csv
