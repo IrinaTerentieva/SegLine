@@ -1,0 +1,48 @@
+#datasets:
+#  ecosite_raster: '/media/irro/All/RecoveryStatus/DATA/products/ecosite_bera/vegetation_types_Surmont.gpkg'
+#  ground_footprint: "D:/Blueberry_NEW/7_products/footprint/_combine_all/segmenting/10_trimmed_footprint_QC_ID.gpkg"
+#  centerline: "D:/Blueberry_NEW/7_products/footprint/_combine_all/segmenting/9_all_centerline_QC_ID.gpkg"
+#  output_dir: "D:/Blueberry_NEW/7_products/footprint/_combine_all/segmenting"
+#  chm: '/media/irina/My Book/Blueberry/6_PPC_DEMs/PA2_W2_West-South_Sikanni_Road_chm.tif'
+#  seedlings: "/media/irina/data/Blueberry/Products/Seedlings/W2(West)-SouthSikanniRoad_circle.gpkg_BBs_filt_circle.gpkg"
+#  output: "/media/irina/data/Blueberry/Products/FLM/PA2-W2(West)-SouthSikanniRoad_segments_ass_SiteB.shp"
+
+datasets:
+#  ecosite_raster: '/media/irro/All/RecoveryStatus/DATA/products/ecosite_bera/vegetation_types_Surmont.gpkg'
+  ground_footprint: "D:/Blueberry_NEW/7_products/assessment/test_plots.gpkg"
+  #centerline: "D:/Blueberry_NEW/7_products/footprint/_combine_all/segmenting/9_all_centerline_QC_ID.gpkg"
+  #output_dir: "D:/Blueberry_NEW/7_products/footprint/_combine_all/segmenting"
+  chm: "D:/Blueberry_NEW/7_products/chm/test_chm.tif"
+  seedlings: "D:/Blueberry_NEW/7_products/seedlings/PA2-W2(West)-SouthSikanniRoad.tif_Model14_preds_filt_circle.gpkg"
+  assess_output_dir: "D:/Blueberry_NEW/7_products/assessment"
+
+
+#datasets:
+#  ecosite_raster: '/media/irro/All/RecoveryStatus/DATA/products/ecosite_bera/vegetation_types_Surmont.gpkg'
+#  ground_footprint: "D:/Blueberry_NEW/7_products/footprint/_combine_all/segmenting_7_problem_lines/footprint7_ID.gpkg"
+#  centerline: "D:/Blueberry_NEW/7_products/footprint/_combine_all/segmenting_7_problem_lines/centerline7_ID.gpkg"
+#  output_dir: "D:/Blueberry_NEW/7_products/footprint/_combine_all/segmenting_7_problem_lines"
+#  chm: '/media/irina/My Book/Blueberry/6_PPC_DEMs/PA2_W2_West-South_Sikanni_Road_chm.tif'
+#  seedlings: "/media/irina/data/Blueberry/Products/Seedlings/W2(West)-SouthSikanniRoad_circle.gpkg_BBs_filt_circle.gpkg"
+#  output: "/media/irina/data/Blueberry/Products/FLM/PA2-W2(West)-SouthSikanniRoad_segments_ass_SiteB.shp"
+
+
+parameters:
+  sitename: 'PA2-W2(West)-SouthSikanniRoad'
+  plot_area: 10
+  segment_area: 100
+  num_workers: 4
+  n_samples: 0
+  offset: 5.0
+  max_width: false
+  processes: 4
+  verbose: false
+  max_workers: 1
+  target_size_segment: 10
+  group_size: 10
+  smoothening: 1.5    ### 1 is super light, 3 is strong
+
+recovery_parameters:
+  n_segments: 0                 # 0 if we want full assessment, > 0 if we want it for X segments (test)
+  buffer_size: 20                  # for adjacency
+  max_workers: 4

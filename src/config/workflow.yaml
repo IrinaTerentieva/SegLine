@@ -1,0 +1,37 @@
+### this is workflow.yaml
+### /home/irina/SegLine/src/config/paths.yaml
+
+dataset:
+  ground_footprint: "file:///media/irina/data/Blueberry/Products/FLM/SouthSikanniRoad/PA2-W2(West)-SouthSikanniRoad.gpkg"
+  ground_footprint_layer: 0_fixedwidth_PD300
+  centerline: "file:///media/irina/data/Blueberry/Products/FLM/SouthSikanniRoad/PA2-W2(West)-SouthSikanniRoad.gpkg"
+  centerline_layer: 0_centerline_PD300
+  debug: false
+  unique_id_length: 8
+
+smoothening:
+  use_assign_id_output: true
+  perform_smoothing: true
+  # When not using assign_ID output, set an alternative centerline path here.
+  centerline: "file:///media/irina/data/Blueberry/Products/FLM/SouthSikanniRoad/PA2-W2(West)-SouthSikanniRoad.gpkg"
+  angle_threshold: 120   # Lower threshold triggers smoothing on more vertices
+  buffer_distance: 2     # Increase buffer for stronger smoothing
+  num_workers: 4
+
+split_to_plots:
+  segment_area: 100
+  num_workers: 4
+  extension_distance: 50
+  max_splitter_length_buffer: 10
+  use_smooth_centerline: true
+
+split_to_side:
+  segment_area: 100
+  min_area: 5
+
+split_to_subplots:
+  segment_area: 10
+  num_workers: 4
+  extension_distance: 50
+  max_splitter_length_buffer: 10
+  use_smooth_centerline: true

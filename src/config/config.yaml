@@ -1,0 +1,18 @@
+### this is config.yaml
+### /home/irina/SegLine/src/config/config.yaml
+
+defaults:
+  - _self_  # Include this file's own keys first.
+  - workflow.yaml
+#  - models.yaml
+#  - augmentation.yaml
+#  - training.yaml
+#  - inference.yaml
+
+# You can also override or provide defaults for settings that you wish to be globally available.
+logging:
+  level: INFO
+  project_name: "LineSegmentation"
+  save_model: true
+  save_logs: true
+  log_images: true
