@@ -2,9 +2,9 @@
 ### src/config/paths.yaml
 
 dataset:
-  ground_footprint: "/path/to/data.gpkg"
+  ground_footprint: "/path/to/data.shp"
   ground_footprint_layer: 0_fixedwidth_PD300
-  centerline: "/path/to/data.gpkg"
+  centerline: "/path/to/data.shp"
   centerline_layer: 0_centerline_PD300
   debug: false
   unique_id_length: 8
