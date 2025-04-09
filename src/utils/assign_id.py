@@ -143,14 +143,23 @@ def save_centerline(centerline_gdf, centerline_updated_path):
 
 def read_vector_file(path: str, layer: str = None) -> gpd.GeoDataFrame:
     """
-    Reads a vector file. If a layer is provided (e.g. for a GeoPackage with multiple layers),
-    it reads that specific layer; otherwise, it reads the file normally.
+    Reads a vector file. If the file is a GeoPackage and a layer is provided, it reads that layer.
+    For shapefiles or other formats that don't support layers, it reads directly.
     """
     if path.startswith("file://"):
         path = path[7:]
-    if layer:
-        return gpd.read_file(path, layer=layer)
-    return gpd.read_file(path)
+
+    ext = os.path.splitext(path)[1].lower()
+
+    if ext == ".gpkg":
+        if layer:
+            return gpd.read_file(path, layer=layer)
+        else:
+            return gpd.read_file(path)
+    else:
+        # Do not pass 'layer' for shapefiles or other formats
+        return gpd.read_file(path)
+
 
 
 @hydra.main(config_path="../config", config_name="config", version_base=None)
