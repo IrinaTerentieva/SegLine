@@ -11,9 +11,9 @@ dataset:
 
 smoothening:
   use_assign_id_output: true
-  perform_smoothing: true
+  perform_smoothing: false
   # When not using assign_ID output, set an alternative centerline path here.
-  centerline: "/path/to/data.gpkg"
+  centerline: "/path/to/data.shp"
   angle_threshold: 120   # Lower threshold triggers smoothing on more vertices
   buffer_distance: 2     # Increase buffer for stronger smoothing
   num_workers: 4
