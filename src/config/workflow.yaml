@@ -2,10 +2,10 @@
 ### /home/irina/SegLine/src/config/paths.yaml
 
 dataset:
-  ground_footprint: "/media/irina/My Book/Carson/WanderingRiver/6_Line_Footprints/WanderingRiver_LineFootprint_FixedWidth.shp"
-  ground_footprint_layer: 0_fixedwidth_PD300
-  centerline: "/media/irina/My Book/Carson/WanderingRiver/6_Line_Footprints/WanderingRiver_Centerline.shp"
-  centerline_layer: 0_centerline_PD300
+  ground_footprint: "/media/irina/My Book/Petronas/DATA/manual/ZigZag/BRFN_SLU_Data_Layer_manualupd_25july2025_FLAIMcenterline_30pct_simple_fixFP.gpkg"
+  ground_footprint_layer: null      # null if NO layer
+  centerline: "/media/irina/My Book/Petronas/DATA/manual/ZigZag/BRFN_SLU_Data_Layer_manualupd_25july2025_FLAIMcenterline_30pct.gpkg"
+  centerline_layer: null            # null if NO layer
   debug: false
   unique_id_length: 8
 
