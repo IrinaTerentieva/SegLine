@@ -20,10 +20,9 @@ smoothening:
 
 split_to_plots:
   segment_area: 100
-  num_workers: 4
+  num_workers: 16
   extension_distance: 50
   max_splitter_length_buffer: 10
-  use_smooth_centerline: true
 
 split_to_side:
   segment_area: 100
