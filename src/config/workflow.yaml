@@ -2,9 +2,9 @@
 ### /home/irina/SegLine/src/config/paths.yaml
 
 dataset:
-  ground_footprint: "/media/irina/My Book/Petronas/DATA/manual/ZigZag/BRFN_SLU_Data_Layer_manualupd_25july2025_FLAIMcenterline_30pct_simple_fixFP.gpkg"
+  ground_footprint: "/media/irina/My Book/Petronas/DATA/manual/ZigZag/BRFN_SLU_Data_Layer_manualupd_25july2025_FLAIMcenterline_30pct_smooth_simple_fixFP.gpkg"
   ground_footprint_layer: null      # null if NO layer
-  centerline: "/media/irina/My Book/Petronas/DATA/manual/ZigZag/BRFN_SLU_Data_Layer_manualupd_25july2025_FLAIMcenterline_30pct.gpkg"
+  centerline: "/media/irina/My Book/Petronas/DATA/manual/ZigZag/BRFN_SLU_Data_Layer_manualupd_25july2025_FLAIMcenterline_30pct_smooth.gpkg"
   centerline_layer: null            # null if NO layer
   debug: false
   unique_id_length: 8
@@ -20,10 +20,9 @@ smoothening:
 
 split_to_plots:
   segment_area: 100
-  num_workers: 4
+  num_workers: 16
   extension_distance: 50
   max_splitter_length_buffer: 10
-  use_smooth_centerline: true
 
 split_to_side:
   segment_area: 100

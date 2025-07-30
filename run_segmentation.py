@@ -2,6 +2,8 @@ import subprocess
 import sys
 import logging
 import os
+from omegaconf import DictConfig, OmegaConf
+import hydra
 
 def run_step(script_path, config_dir):
     try:
@@ -12,8 +14,8 @@ def run_step(script_path, config_dir):
         logging.error(f"Error in {script_path}: {e}")
         sys.exit(e.returncode)
 
-
-def main():
+@hydra.main(config_path="/home/irina/SegLine/src/config", config_name="config", version_base=None)
+def main(cfg: DictConfig):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] - %(message)s")
 
     # Adjust these paths if needed. Here we assume:
@@ -23,13 +25,21 @@ def main():
     # So from a utils script, the config directory is: ../config
     config_dir = "src/config"  # relative path from the utils directory
 
-    steps = [
-        "src/utils/assign_id.py",
-        "src/utils/smooth_centerline.py",
-        "src/utils/split_to_plots.py",
-        "src/utils/split_to_sides.py",
-        "src/utils/split_to_subplots.py"
-    ]
+    if cfg.smoothening.get("perform_smoothing", True):
+        steps = [
+            "src/utils/assign_id.py",
+            "src/utils/smooth_centerline.py",
+            "src/utils/split_to_plots.py",
+            "src/utils/split_to_sides.py",
+            "src/utils/split_to_subplots.py"
+        ]
+    else:
+        steps = [
+            "src/utils/assign_id.py",
+            "src/utils/split_to_plots.py",
+            "src/utils/split_to_sides.py",
+            "src/utils/split_to_subplots.py"
+        ]
 
     for step in steps:
         run_step(step, config_dir)
