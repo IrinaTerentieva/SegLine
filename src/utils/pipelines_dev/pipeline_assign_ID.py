@@ -322,8 +322,16 @@ def main():
     """
     Main function to split MultiPolygons and match centerlines.
     """
+    # # Input paths
+    # footprint_path = "/path/to/data.shp"
+    # centerline_path = "/path/to/data.gpkg"
+    #
+    # # Output paths
+    # output_footprint = "/path/to/data.gpkg"
+    # output_centerline = "/path/to/data.gpkg"
+
     # Input paths
-    footprint_path = "/path/to/data.shp"
+    footprint_path = "/path/to/data.gpkg"
     centerline_path = "/path/to/data.gpkg"
 
     # Output paths

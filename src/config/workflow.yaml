@@ -2,7 +2,7 @@
 ### src/config/paths.yaml
 
 dataset:
-  ground_footprint: "/path/to/data.shp"
+  ground_footprint: "/path/to/data.gpkg"
   ground_footprint_layer: null      # null if NO layer
   centerline: "/path/to/data.gpkg"
   centerline_layer: null            # null if NO layer
