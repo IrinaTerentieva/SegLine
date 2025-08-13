@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """
-Standalone script to split MultiPolygons into individual Polygons
-and match them with centerlines.
+Improved script to split MultiPolygons and match centerlines with a second pass
+for unmatched polygons.
 """
 
 import geopandas as gpd
@@ -11,6 +11,7 @@ import random
 import string
 import logging
 import warnings
+import numpy as np
 
 warnings.filterwarnings('ignore')
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -55,10 +56,9 @@ def split_multipolygons(footprint_path, output_path):
         if geom.geom_type == 'Polygon':
             # Single polygon - keep as is
             new_row = row.to_dict()
-            if 'UniqueID' not in new_row:
+            if 'UniqueID' not in new_row or not new_row['UniqueID']:
                 new_row['UniqueID'] = generate_random_id()
             split_polygons.append(new_row)
-            logging.debug(f"Row {idx}: Single Polygon - kept as is")
 
         elif geom.geom_type == 'MultiPolygon':
             # Split into individual polygons
@@ -73,7 +73,6 @@ def split_multipolygons(footprint_path, output_path):
                     new_row['mp_source'] = idx  # Track original MultiPolygon
                     new_row['mp_part'] = i  # Track which part this was
                     split_polygons.append(new_row)
-                    logging.debug(f"  Created Polygon {i + 1}/{num_parts}")
 
     # Create new GeoDataFrame
     result_gdf = gpd.GeoDataFrame(split_polygons, crs=footprint_gdf.crs)
@@ -100,12 +99,14 @@ def split_multipolygons(footprint_path, output_path):
     return result_gdf
 
 
-def match_centerlines_to_polygons(polygon_gdf, centerline_path, output_centerline_path):
+def match_centerlines_to_polygons_two_pass(polygon_gdf, centerline_path, output_centerline_path):
     """
-    Match centerlines to polygons based on spatial overlap.
+    Match centerlines to polygons with a two-pass approach:
+    1. First pass: Standard spatial matching
+    2. Second pass: Match remaining unmatched polygons to best overlapping centerlines
     """
     logging.info(f"\n{'=' * 60}")
-    logging.info("MATCHING CENTERLINES TO POLYGONS")
+    logging.info("MATCHING CENTERLINES TO POLYGONS (TWO-PASS)")
     logging.info(f"{'=' * 60}\n")
 
     # Read centerlines
@@ -125,26 +126,34 @@ def match_centerlines_to_polygons(polygon_gdf, centerline_path, output_centerlin
             geom = row.geometry
 
             if geom.geom_type == 'LineString':
-                split_lines.append(row.to_dict())
+                new_row = row.to_dict()
+                new_row['original_idx'] = idx
+                split_lines.append(new_row)
             elif geom.geom_type == 'MultiLineString':
                 for i, line in enumerate(geom.geoms):
                     if line and not line.is_empty:
                         new_row = row.to_dict()
                         new_row['geometry'] = line
+                        new_row['original_idx'] = idx
+                        new_row['mls_part'] = i
                         split_lines.append(new_row)
 
         lines_gdf = gpd.GeoDataFrame(split_lines, crs=centerline_gdf.crs)
         logging.info(f"Split into {len(lines_gdf)} line segments")
     else:
         lines_gdf = centerline_gdf
+        lines_gdf['original_idx'] = lines_gdf.index
 
     # Create spatial index
-    logging.info("Building spatial index...")
+    logging.info("\n=== FIRST PASS: Standard Spatial Matching ===")
     lines_sindex = lines_gdf.sindex
 
-    # Match lines to polygons
+    # Track which polygons and lines have been matched
+    matched_polygon_ids = set()
+    matched_line_indices = set()
     matched_centerlines = []
 
+    # First pass: Standard matching
     for poly_idx, poly_row in polygon_gdf.iterrows():
         polygon = poly_row.geometry
         unique_id = poly_row.get('UniqueID', generate_random_id())
@@ -154,7 +163,12 @@ def match_centerlines_to_polygons(polygon_gdf, centerline_path, output_centerlin
         possible_matches = list(lines_sindex.intersection(bounds))
 
         overlapping_lines = []
+        line_indices = []
+
         for line_idx in possible_matches:
+            if line_idx in matched_line_indices:
+                continue  # Skip already matched lines
+
             line = lines_gdf.iloc[line_idx].geometry
             if polygon.intersects(line):
                 # Check if significant portion is within polygon
@@ -162,6 +176,7 @@ def match_centerlines_to_polygons(polygon_gdf, centerline_path, output_centerlin
                     intersection = polygon.intersection(line)
                     if intersection.length / line.length > 0.3:  # 30% threshold
                         overlapping_lines.append(line)
+                        line_indices.append(line_idx)
                 except:
                     pass
 
@@ -175,19 +190,127 @@ def match_centerlines_to_polygons(polygon_gdf, centerline_path, output_centerlin
             centerline_row = {
                 'UniqueID': unique_id,
                 'geometry': merged,
-                'num_segments': len(overlapping_lines)
+                'num_segments': len(overlapping_lines),
+                'match_pass': 1
             }
             matched_centerlines.append(centerline_row)
-            logging.debug(f"Polygon {poly_idx}: matched {len(overlapping_lines)} lines")
+            matched_polygon_ids.add(unique_id)
+            matched_line_indices.update(line_indices)
+
+    logging.info(f"First pass matched {len(matched_polygon_ids)} polygons")
+
+    # Second pass: Match remaining polygons
+    unmatched_polygons = polygon_gdf[~polygon_gdf['UniqueID'].isin(matched_polygon_ids)]
+    unmatched_lines = lines_gdf[~lines_gdf.index.isin(matched_line_indices)]
+
+    if len(unmatched_polygons) > 0 and len(unmatched_lines) > 0:
+        logging.info(f"\n=== SECOND PASS: Matching {len(unmatched_polygons)} Unmatched Polygons ===")
+
+        # For each unmatched polygon, find the best matching unmatched line
+        for poly_idx, poly_row in unmatched_polygons.iterrows():
+            polygon = poly_row.geometry
+            unique_id = poly_row.get('UniqueID', generate_random_id())
+
+            best_match = None
+            best_overlap = 0
+            best_line_idx = None
+
+            # Check all unmatched lines
+            for line_idx, line_row in unmatched_lines.iterrows():
+                line = line_row.geometry
+
+                try:
+                    if polygon.intersects(line):
+                        intersection = polygon.intersection(line)
+                        # Calculate overlap ratio (how much of the line is within the polygon)
+                        overlap_ratio = intersection.length / line.length if line.length > 0 else 0
+
+                        if overlap_ratio > best_overlap:
+                            best_overlap = overlap_ratio
+                            best_match = line
+                            best_line_idx = line_idx
+                except:
+                    continue
+
+            # If we found a match (even with low overlap), use it
+            if best_match is not None and best_overlap > 0.1:  # Lower threshold for second pass
+                centerline_row = {
+                    'UniqueID': unique_id,
+                    'geometry': best_match,
+                    'num_segments': 1,
+                    'match_pass': 2,
+                    'overlap_ratio': best_overlap
+                }
+                matched_centerlines.append(centerline_row)
+                matched_polygon_ids.add(unique_id)
+                matched_line_indices.add(best_line_idx)
+                # Remove this line from unmatched set for next iteration
+                unmatched_lines = unmatched_lines.drop(best_line_idx)
+                logging.info(f"  Matched polygon {unique_id} with line (overlap: {best_overlap:.2%})")
+
+    # Third pass: For any still unmatched polygons, try to find ANY intersecting line
+    still_unmatched = polygon_gdf[~polygon_gdf['UniqueID'].isin(matched_polygon_ids)]
+    if len(still_unmatched) > 0:
+        logging.info(f"\n=== THIRD PASS: Finding ANY Intersection for {len(still_unmatched)} Polygons ===")
+
+        for poly_idx, poly_row in still_unmatched.iterrows():
+            polygon = poly_row.geometry
+            unique_id = poly_row.get('UniqueID', generate_random_id())
+
+            # Check ALL lines (even matched ones) for any intersection
+            best_match = None
+            best_overlap = 0
+
+            for line_idx, line_row in lines_gdf.iterrows():
+                line = line_row.geometry
+
+                try:
+                    if polygon.intersects(line):
+                        intersection = polygon.intersection(line)
+                        if hasattr(intersection, 'length'):
+                            overlap_length = intersection.length
+                            if overlap_length > best_overlap:
+                                best_overlap = overlap_length
+                                best_match = intersection if hasattr(intersection, 'coords') else line
+                except:
+                    continue
+
+            if best_match is not None:
+                centerline_row = {
+                    'UniqueID': unique_id,
+                    'geometry': best_match,
+                    'num_segments': 1,
+                    'match_pass': 3,
+                    'overlap_length': best_overlap
+                }
+                matched_centerlines.append(centerline_row)
+                matched_polygon_ids.add(unique_id)
+                logging.info(f"  Found intersection for polygon {unique_id} (length: {best_overlap:.2f})")
 
     # Create result
     if matched_centerlines:
         result_centerlines = gpd.GeoDataFrame(matched_centerlines, crs=centerline_gdf.crs)
-        logging.info(f"\nMatched {len(result_centerlines)} centerlines to polygons")
+
+        logging.info(f"\n=== MATCHING SUMMARY ===")
+        logging.info(f"Total polygons: {len(polygon_gdf)}")
+        logging.info(f"Total matched: {len(result_centerlines)}")
+        logging.info(f"Unmatched polygons: {len(polygon_gdf) - len(result_centerlines)}")
+
+        # Count by pass
+        pass_counts = result_centerlines['match_pass'].value_counts().sort_index()
+        for pass_num, count in pass_counts.items():
+            logging.info(f"  Pass {pass_num}: {count} matches")
 
         if output_centerline_path:
             result_centerlines.to_file(output_centerline_path, driver='GPKG')
-            logging.info(f"Saved centerlines to: {output_centerline_path}")
+            logging.info(f"\nSaved centerlines to: {output_centerline_path}")
+
+        # Report any still unmatched polygons
+        final_unmatched = polygon_gdf[~polygon_gdf['UniqueID'].isin(matched_polygon_ids)]
+        if len(final_unmatched) > 0:
+            logging.warning(f"\n⚠️ WARNING: {len(final_unmatched)} polygons still have no centerlines:")
+            for idx, row in final_unmatched.iterrows():
+                logging.warning(f"  - {row['UniqueID']}")
 
         return result_centerlines
     else:
@@ -199,7 +322,7 @@ def main():
     """
     Main function to split MultiPolygons and match centerlines.
     """
-    # Input paths - UPDATE THESE
+    # Input paths
     footprint_path = "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS.shp"
     centerline_path = "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS_centerlines_buf5_rowbyrow_str.gpkg"
 
@@ -208,15 +331,15 @@ def main():
     output_centerline = "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS_matched_centerlines.gpkg"
 
     print("\n" + "=" * 60)
-    print("MULTIPOLYGON SPLITTER FOR PIPELINES")
+    print("MULTIPOLYGON SPLITTER WITH IMPROVED MATCHING")
     print("=" * 60)
 
     # Step 1: Split MultiPolygons
     polygon_gdf = split_multipolygons(footprint_path, output_footprint)
 
-    # Step 2: Match centerlines to split polygons
+    # Step 2: Match centerlines to split polygons with two-pass approach
     if polygon_gdf is not None and len(polygon_gdf) > 0:
-        centerlines_gdf = match_centerlines_to_polygons(
+        centerlines_gdf = match_centerlines_to_polygons_two_pass(
             polygon_gdf, centerline_path, output_centerline
         )
 
@@ -226,17 +349,6 @@ def main():
     print(f"\nOutputs:")
     print(f"  Split polygons: {output_footprint}")
     print(f"  Matched centerlines: {output_centerline}")
-
-    # Final verification
-    if output_footprint:
-        verify_gdf = gpd.read_file(output_footprint)
-        types = verify_gdf.geometry.geom_type.value_counts()
-        print(f"\nFinal verification of {output_footprint}:")
-        print(f"  Geometry types: {types.to_dict()}")
-        if 'MultiPolygon' in types:
-            print("  ⚠️ WARNING: MultiPolygons still present!")
-        else:
-            print("  ✅ All features are single Polygons")
 
 
 if __name__ == "__main__":
