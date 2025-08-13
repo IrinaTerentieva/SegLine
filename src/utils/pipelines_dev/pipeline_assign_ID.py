@@ -322,13 +322,21 @@ def main():
     """
     Main function to split MultiPolygons and match centerlines.
     """
+    # # Input paths
+    # footprint_path = "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS.shp"
+    # centerline_path = "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS_centerlines_buf5_rowbyrow_str.gpkg"
+    #
+    # # Output paths
+    # output_footprint = "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS_split_polygons.gpkg"
+    # output_centerline = "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS_matched_centerlines.gpkg"
+
     # Input paths
-    footprint_path = "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS.shp"
-    centerline_path = "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS_centerlines_buf5_rowbyrow_str.gpkg"
+    footprint_path = "/media/irina/My Book/Petronas/DATA/manual/BRFN_SLU_Data_pipeline_cleaned.gpkg"
+    centerline_path = "/media/irina/My Book/Petronas/DATA/vector_data/LineFootprint/ZigZag/BRFN_SLU_pipeline_centerlines_cleaned.gpkg"
 
     # Output paths
-    output_footprint = "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS_split_polygons.gpkg"
-    output_centerline = "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS_matched_centerlines.gpkg"
+    output_footprint = "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/BRFN_SLU_pipelines_split_polygons.gpkg"
+    output_centerline = "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/BRFN_SLU_pipelines_matched_centerlines.gpkg"
 
     print("\n" + "=" * 60)
     print("MULTIPOLYGON SPLITTER WITH IMPROVED MATCHING")

@@ -2,9 +2,9 @@
 ### /home/irina/SegLine/src/config/paths.yaml
 
 dataset:
-  ground_footprint: "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS.shp"
+  ground_footprint: "/media/irina/My Book/Petronas/DATA/vector_data/LineFootprint/PECL_seismiclines_FLAIMcenterline_optunaII_v3_simple_fixFP.gpkg"
   ground_footprint_layer: null      # null if NO layer
-  centerline: "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS_centerlines_buf5_rowbyrow_str.gpkg"
+  centerline: "/media/irina/My Book/Petronas/DATA/vector_data/LineFootprint/PECL_seismiclines_FLAIMcenterline_optunaII_v3.gpkg"
   centerline_layer: null            # null if NO layer
   debug: false
   unique_id_length: 8

@@ -1,32 +1,49 @@
 #!/usr/bin/env python
 """
-Debug version of split_to_plots.py that processes a single polygon
-with detailed logging and visualization.
+Fixed version that handles MultiLineStrings properly - doesn't skip polygons.
 """
 
-import os
 import geopandas as gpd
-from shapely.geometry import LineString, MultiLineString, Polygon, GeometryCollection, Point
+from shapely.geometry import LineString, MultiLineString, Polygon, GeometryCollection
 from shapely.ops import split, linemerge
-from shapely import wkt
 import numpy as np
-import matplotlib.pyplot as plt
 import logging
 import warnings
 
 warnings.filterwarnings('ignore')
-logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
+
+def handle_multilinestring(centerline):
+    """
+    Handle MultiLineString centerlines properly.
+    Try to merge first, if that fails, use the longest segment.
+    """
+    if isinstance(centerline, LineString):
+        return centerline, "LineString"
+
+    if isinstance(centerline, MultiLineString):
+        # Try to merge
+        merged = linemerge(centerline)
+        if isinstance(merged, LineString):
+            return merged, "merged"
+        else:
+            # Can't merge - use longest segment
+            segments = list(centerline.geoms)
+            longest = max(segments, key=lambda x: x.length)
+            logging.debug(f"   MultiLineString with {len(segments)} parts, using longest ({longest.length:.2f}m)")
+            return longest, "longest_segment"
+
+    return centerline, "unknown"
 
 
 def extend_line(line: LineString, extension_distance=100):
     """
     Extend a line at both ends by a given distance.
-    Handles MultiLineString by merging.
     """
-    if isinstance(line, MultiLineString):
-        line = linemerge(line)
     if not isinstance(line, LineString) or line.is_empty:
         return line
+
     try:
         coords = list(line.coords)
         if len(coords) < 2:
@@ -63,18 +80,62 @@ def extend_line(line: LineString, extension_distance=100):
         return line
 
 
-def generate_perpendiculars(centerline, avg_width, target_area, max_splitter_length=10):
+def calculate_polygon_width(polygon, centerline, num_samples=10):
     """
-    Generate perpendicular lines to the centerline at intervals calculated to achieve a target area.
+    Calculate the average width of a polygon.
+    """
+    if not isinstance(centerline, LineString):
+        return polygon.area / centerline.length if hasattr(centerline, 'length') and centerline.length > 0 else 10.0
+
+    widths = []
+
+    for i in range(num_samples):
+        distance = (i + 1) * centerline.length / (num_samples + 1)
+        point = centerline.interpolate(distance)
+
+        # Create perpendicular line
+        next_point = centerline.interpolate(min(distance + 1, centerline.length))
+        dx = next_point.x - point.x
+        dy = next_point.y - point.y
+        length = np.sqrt(dx ** 2 + dy ** 2)
+
+        if length == 0:
+            continue
+
+        perp_x = -dy / length
+        perp_y = dx / length
+
+        max_dist = 100
+        perp_line = LineString([
+            (point.x - perp_x * max_dist, point.y - perp_y * max_dist),
+            (point.x + perp_x * max_dist, point.y + perp_y * max_dist)
+        ])
+
+        try:
+            intersection = polygon.intersection(perp_line)
+            if hasattr(intersection, 'length'):
+                widths.append(intersection.length)
+        except:
+            continue
+
+    if widths:
+        return np.mean(widths)
+    else:
+        return polygon.area / centerline.length if centerline.length > 0 else 10.0
+
+
+def generate_perpendiculars(centerline, avg_width, target_area, max_splitter_length=10, adjustment_factor=1.35):
+    """
+    Generate perpendicular lines to the centerline.
     """
     if avg_width <= 0:
         avg_width = 5
-    spacing = target_area / avg_width
+
+    # spacing = (target_area / avg_width) * adjustment_factor
+    spacing = target_area
+
     if spacing <= 0 or centerline.length <= 0:
         return []
-
-    logging.debug(
-        f"  Generating perpendiculars: avg_width={avg_width:.2f}, spacing={spacing:.2f}, centerline_length={centerline.length:.2f}")
 
     perpendiculars = []
     try:
@@ -97,235 +158,33 @@ def generate_perpendiculars(centerline, avg_width, target_area, max_splitter_len
     except Exception as e:
         logging.debug(f"Error in generate_perpendiculars: {e}")
 
-    logging.debug(f"  Generated {len(perpendiculars)} perpendicular lines")
     return perpendiculars
 
 
 def split_geometry(geometry, splitter):
     """
-    Split a geometry with a splitter, handling GeometryCollection properly.
+    Split a geometry with a splitter.
     """
     try:
         result = split(geometry, splitter)
         if isinstance(result, GeometryCollection):
             polygons = [geom for geom in result.geoms if isinstance(geom, Polygon)]
-            # logging.debug(f"    Split result: GeometryCollection with {len(polygons)} polygons")
             return polygons
         elif isinstance(result, Polygon):
-            # logging.debug(f"    Split result: Single Polygon")
             return [result]
         else:
-            # logging.debug(f"    Split result: Unexpected type {type(result)}")
             return []
     except Exception as e:
-        logging.debug(f"Error splitting geometry: {e}")
         return []
 
 
-def visualize_splitting_process(polygon, centerline, extended_centerline, perpendiculars, segments):
+def process_all_polygons_fixed(footprint_path, centerline_path, output_path,
+                               target_area=50, extension_distance=50, adjustment_factor=1.35):
     """
-    Visualize the splitting process step by step.
-    """
-    fig, axes = plt.subplots(2, 3, figsize=(15, 10))
-
-    # Plot 1: Original polygon and centerline
-    ax = axes[0, 0]
-    x, y = polygon.exterior.xy
-    ax.plot(x, y, 'b-', linewidth=2, label='Polygon')
-    if centerline:
-        if isinstance(centerline, LineString):
-            x, y = centerline.xy
-            ax.plot(x, y, 'r-', linewidth=1, label='Centerline')
-    ax.set_title('Original Polygon and Centerline')
-    ax.legend()
-    ax.set_aspect('equal')
-
-    # Plot 2: Extended centerline
-    ax = axes[0, 1]
-    x, y = polygon.exterior.xy
-    ax.plot(x, y, 'b-', linewidth=2, label='Polygon')
-    if extended_centerline and isinstance(extended_centerline, LineString):
-        x, y = extended_centerline.xy
-        ax.plot(x, y, 'g-', linewidth=1, label='Extended Centerline')
-    ax.set_title('Extended Centerline')
-    ax.legend()
-    ax.set_aspect('equal')
-
-    # Plot 3: Perpendicular lines
-    ax = axes[0, 2]
-    x, y = polygon.exterior.xy
-    ax.plot(x, y, 'b-', linewidth=2, label='Polygon')
-    for perp in perpendiculars[:10]:  # Show first 10 perpendiculars
-        x, y = perp.xy
-        ax.plot(x, y, 'm-', linewidth=0.5, alpha=0.5)
-    ax.set_title(f'Perpendiculars ({len(perpendiculars)} total)')
-    ax.set_aspect('equal')
-
-    # Plot 4: All splitting lines
-    ax = axes[1, 0]
-    x, y = polygon.exterior.xy
-    ax.plot(x, y, 'b-', linewidth=2, label='Polygon')
-    if extended_centerline and isinstance(extended_centerline, LineString):
-        x, y = extended_centerline.xy
-        ax.plot(x, y, 'g-', linewidth=1, label='Extended Centerline')
-    for perp in perpendiculars:
-        x, y = perp.xy
-        ax.plot(x, y, 'm-', linewidth=0.3, alpha=0.3)
-    ax.set_title('All Splitting Lines')
-    ax.legend()
-    ax.set_aspect('equal')
-
-    # Plot 5: Resulting segments
-    ax = axes[1, 1]
-    colors = plt.cm.rainbow(np.linspace(0, 1, len(segments)))
-    for i, segment in enumerate(segments):
-        if isinstance(segment, Polygon):
-            x, y = segment.exterior.xy
-            ax.fill(x, y, color=colors[i], alpha=0.5, edgecolor='black', linewidth=0.5)
-    ax.set_title(f'Result: {len(segments)} segments')
-    ax.set_aspect('equal')
-
-    # Plot 6: Segment areas histogram
-    ax = axes[1, 2]
-    if segments:
-        areas = [seg.area for seg in segments if isinstance(seg, Polygon)]
-        ax.hist(areas, bins=20, edgecolor='black')
-        ax.set_xlabel('Area')
-        ax.set_ylabel('Count')
-        ax.set_title(f'Segment Areas (mean={np.mean(areas):.1f})')
-
-    plt.tight_layout()
-    plt.show()
-
-
-def debug_single_polygon(footprint_path, centerline_path, polygon_index=0, target_area=50, extension_distance=50):
-    """
-    Debug the splitting process for a single polygon.
+    Process all polygons with proper MultiLineString handling.
     """
     print("\n" + "=" * 60)
-    print("DEBUG MODE: Processing Single Polygon")
-    print("=" * 60)
-
-    # Read data
-    print(f"\n1. Reading data...")
-    print(f"   Footprint: {footprint_path}")
-    print(f"   Centerline: {centerline_path}")
-
-    footprint_gdf = gpd.read_file(footprint_path)
-    centerline_gdf = gpd.read_file(centerline_path)
-
-    print(f"   Found {len(footprint_gdf)} polygons")
-    print(f"   Found {len(centerline_gdf)} centerlines")
-
-    # Select a polygon to debug
-    if polygon_index >= len(footprint_gdf):
-        polygon_index = 0
-        print(f"   Index {polygon_index} out of range, using index 0")
-
-    footprint_row = footprint_gdf.iloc[polygon_index]
-    polygon = footprint_row.geometry
-    unique_id = footprint_row.get('UniqueID', f'ID_{polygon_index}')
-
-    print(f"\n2. Selected polygon {polygon_index}:")
-    print(f"   UniqueID: {unique_id}")
-    print(f"   Geometry type: {polygon.geom_type}")
-    print(f"   Area: {polygon.area:.2f}")
-    print(f"   Is valid: {polygon.is_valid}")
-
-    # Find matching centerline
-    centerline_match = centerline_gdf[centerline_gdf['UniqueID'] == unique_id]
-    if centerline_match.empty:
-        print(f"   WARNING: No centerline found for UniqueID {unique_id}")
-        print(f"   Available UniqueIDs in centerlines: {centerline_gdf['UniqueID'].unique()[:5]}...")
-        # Try to use first centerline as fallback
-        if len(centerline_gdf) > 0:
-            centerline_row = centerline_gdf.iloc[0]
-            print(f"   Using first centerline as fallback")
-        else:
-            print("   ERROR: No centerlines available")
-            return
-    else:
-        centerline_row = centerline_match.iloc[0]
-
-    centerline = centerline_row.geometry
-    print(f"\n3. Centerline:")
-    print(f"   Geometry type: {centerline.geom_type}")
-    print(f"   Length: {centerline.length:.2f}")
-
-    # Handle MultiLineString
-    if isinstance(centerline, MultiLineString):
-        print(f"   MultiLineString with {len(centerline.geoms)} parts")
-        centerline = linemerge(centerline)
-        print(f"   After merging: {centerline.geom_type}")
-
-    # Calculate average width
-    avg_width = footprint_row.get('avg_width', polygon.area / centerline.length if centerline.length > 0 else 10)
-    max_width = avg_width + 10
-
-    if max_width <= 5:
-        max_width = 15
-    if avg_width >= 9:
-        target_area = int(target_area * 2)
-
-    print(f"\n4. Width calculations:")
-    print(f"   Average width: {avg_width:.2f}")
-    print(f"   Max width (for splitters): {max_width:.2f}")
-    print(f"   Target area per segment: {target_area}")
-
-    # Extend centerline
-    print(f"\n5. Extending centerline by {extension_distance}m...")
-    extended_centerline = extend_line(centerline, extension_distance)
-    if isinstance(extended_centerline, LineString):
-        print(f"   Extended length: {extended_centerline.length:.2f}")
-        print(f"   Length increase: {extended_centerline.length - centerline.length:.2f}")
-
-    # Generate perpendiculars
-    print(f"\n6. Generating perpendicular lines...")
-    perpendiculars = generate_perpendiculars(extended_centerline, avg_width, target_area, max_splitter_length=max_width)
-    print(f"   Generated {len(perpendiculars)} perpendiculars")
-
-    # Split polygon
-    print(f"\n7. Splitting polygon...")
-
-    # First split by centerline
-    print(f"   Step 1: Splitting by extended centerline...")
-    segments = split_geometry(polygon, extended_centerline)
-    print(f"   Result: {len(segments)} segments")
-
-    # Then split by each perpendicular
-    print(f"   Step 2: Splitting by perpendiculars...")
-    for i, perp in enumerate(perpendiculars):
-        temp_segments = []
-        for segment in segments:
-            split_result = split_geometry(segment, perp)
-            temp_segments.extend(split_result)
-        segments = temp_segments
-        if i % 10 == 0:  # Log progress every 10 perpendiculars
-            print(f"     After {i + 1} perpendiculars: {len(segments)} segments")
-
-    print(f"\n8. Final results:")
-    print(f"   Total segments created: {len(segments)}")
-    if segments:
-        areas = [seg.area for seg in segments if isinstance(seg, Polygon)]
-        print(f"   Segment areas: min={min(areas):.2f}, max={max(areas):.2f}, mean={np.mean(areas):.2f}")
-        print(f"   Total area of segments: {sum(areas):.2f}")
-        print(f"   Original polygon area: {polygon.area:.2f}")
-        print(f"   Area difference: {abs(sum(areas) - polygon.area):.2f}")
-
-    # Visualize
-    print(f"\n9. Creating visualization...")
-    visualize_splitting_process(polygon, centerline, extended_centerline, perpendiculars, segments)
-
-    return segments
-
-
-def process_all_polygons(footprint_path, centerline_path, output_path, target_area=50, extension_distance=50,
-                         visualize=False):
-    """
-    Process all polygons and save the segmented results.
-    """
-    print("\n" + "=" * 60)
-    print("PROCESSING ALL POLYGONS")
+    print("PROCESSING ALL POLYGONS (FIXED VERSION)")
     print("=" * 60)
 
     # Read data
@@ -346,6 +205,13 @@ def process_all_polygons(footprint_path, centerline_path, output_path, target_ar
     all_segments = []
     polygons_processed = 0
     polygons_skipped = 0
+    multiline_handled = 0
+    handling_stats = {
+        'LineString': 0,
+        'merged': 0,
+        'longest_segment': 0,
+        'unknown': 0
+    }
 
     print(f"\n2. Processing polygons...")
     for idx, footprint_row in footprint_gdf.iterrows():
@@ -354,42 +220,45 @@ def process_all_polygons(footprint_path, centerline_path, output_path, target_ar
 
         # Skip invalid geometries
         if not polygon or not polygon.is_valid:
-            print(f"   Skipping polygon {idx} (UniqueID: {unique_id}): Invalid geometry")
+            logging.info(f"   Skipping polygon {idx} (UniqueID: {unique_id}): Invalid geometry")
             polygons_skipped += 1
             continue
 
         # Find matching centerline
         centerline = centerline_dict.get(unique_id)
         if not centerline:
-            print(f"   Skipping polygon {idx} (UniqueID: {unique_id}): No matching centerline")
+            logging.info(f"   Skipping polygon {idx} (UniqueID: {unique_id}): No matching centerline")
             polygons_skipped += 1
             continue
 
-        # Handle MultiLineString
-        if isinstance(centerline, MultiLineString):
-            centerline = linemerge(centerline)
-            if not isinstance(centerline, LineString):
-                print(f"   Skipping polygon {idx} (UniqueID: {unique_id}): Could not merge MultiLineString")
-                polygons_skipped += 1
-                continue
+        # Handle MultiLineString properly
+        original_type = centerline.geom_type
+        centerline, handling_method = handle_multilinestring(centerline)
+        handling_stats[handling_method] += 1
 
-        # Calculate average width
-        avg_width = footprint_row.get('avg_width', polygon.area / centerline.length if centerline.length > 0 else 10)
-        max_width = avg_width + 10
+        if original_type == 'MultiLineString':
+            multiline_handled += 1
+            if handling_method == 'longest_segment':
+                logging.debug(f"   Polygon {idx} (UniqueID: {unique_id}): Using longest segment from MultiLineString")
 
-        if max_width <= 5:
-            max_width = 15
-        if avg_width >= 9:
-            current_target_area = int(target_area * 2)
-        else:
-            current_target_area = target_area
+        # Calculate actual width
+        calculated_width = calculate_polygon_width(polygon, centerline)
+        avg_width = calculated_width
+        max_width = min(avg_width * 1.5, avg_width + 10)
+
+        # Adjust target area for wide polygons
+        current_target_area = target_area
+        if avg_width >= 15:
+            current_target_area = int(target_area * 1.2)
 
         # Extend centerline
         extended_centerline = extend_line(centerline, extension_distance)
 
         # Generate perpendiculars
-        perpendiculars = generate_perpendiculars(extended_centerline, avg_width, current_target_area,
-                                                 max_splitter_length=max_width)
+        perpendiculars = generate_perpendiculars(
+            extended_centerline, avg_width, current_target_area,
+            max_splitter_length=max_width, adjustment_factor=adjustment_factor
+        )
 
         # Split polygon
         segments = split_geometry(polygon, extended_centerline)
@@ -401,24 +270,32 @@ def process_all_polygons(footprint_path, centerline_path, output_path, target_ar
 
         # Add segments to results with metadata
         for part_id, segment in enumerate(segments):
-            if isinstance(segment, Polygon) and segment.is_valid:
+            if isinstance(segment, Polygon) and segment.is_valid and segment.area > 0.1:
                 segment_data = footprint_row.to_dict()
                 segment_data['geometry'] = segment
                 segment_data['PartID'] = part_id
                 segment_data['OriginalIndex'] = idx
-                segment_data['SegmentArea'] = segment.area
+                segment_data['RealArea'] = segment.area
+                segment_data['CalculatedWidth'] = calculated_width
+                segment_data['CenterlineHandling'] = handling_method
                 all_segments.append(segment_data)
 
         polygons_processed += 1
 
         # Progress update
-        if polygons_processed % 10 == 0:
+        if polygons_processed % 20 == 0:
             print(f"   Processed {polygons_processed}/{len(footprint_gdf)} polygons...")
 
     print(f"\n3. Summary:")
     print(f"   Polygons processed: {polygons_processed}")
     print(f"   Polygons skipped: {polygons_skipped}")
+    print(f"   MultiLineStrings handled: {multiline_handled}")
     print(f"   Total segments created: {len(all_segments)}")
+
+    print(f"\n   Centerline handling methods:")
+    for method, count in handling_stats.items():
+        if count > 0:
+            print(f"     {method}: {count}")
 
     # Create output GeoDataFrame
     if all_segments:
@@ -426,16 +303,22 @@ def process_all_polygons(footprint_path, centerline_path, output_path, target_ar
         output_gdf = gpd.GeoDataFrame(all_segments, crs=footprint_gdf.crs)
 
         # Calculate statistics
-        areas = output_gdf['SegmentArea'].values
-        print(f"   Segment area statistics:")
-        print(f"     Min: {areas.min():.2f} m²")
-        print(f"     Max: {areas.max():.2f} m²")
-        print(f"     Mean: {areas.mean():.2f} m²")
-        print(f"     Median: {np.median(areas):.2f} m²")
-        print(f"     Target was: {target_area} m²")
+        areas = output_gdf['RealArea'].values
+        print(f"\n5. Segment area statistics:")
+        print(f"   Min: {areas.min():.2f} m²")
+        print(f"   Max: {areas.max():.2f} m²")
+        print(f"   Mean: {areas.mean():.2f} m²")
+        print(f"   Median: {np.median(areas):.2f} m²")
+        print(f"   Target was: {target_area} m²")
+
+        within_10 = np.sum((areas >= target_area * 0.9) & (areas <= target_area * 1.1))
+        within_20 = np.sum((areas >= target_area * 0.8) & (areas <= target_area * 1.2))
+        print(f"\n   Segments within target range:")
+        print(f"     Within ±10% of target: {within_10} ({100 * within_10 / len(areas):.1f}%)")
+        print(f"     Within ±20% of target: {within_20} ({100 * within_20 / len(areas):.1f}%)")
 
         # Save to file
-        print(f"\n5. Saving to: {output_path}")
+        print(f"\n6. Saving to: {output_path}")
         output_gdf.to_file(output_path, driver='GPKG')
         print(f"   Saved {len(output_gdf)} segments")
 
@@ -447,40 +330,47 @@ def process_all_polygons(footprint_path, centerline_path, output_path, target_ar
 
 def main():
     """
-    Main function - modify these paths to your files
+    Main function - uses the SAME paths as your debug script
     """
-    # UPDATE THESE PATHS TO YOUR FILES
-    footprint_path = "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS_split_polygons.gpkg"
-    centerline_path = "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS_centerlines_cleaned.gpkg"
-    output_path = "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS_segments_50m2.gpkg"
+    # These are the EXACT paths from your debug script
+    spacing = 10
+
+    # footprint_path = "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS_split_polygons.gpkg"
+    # centerline_path = "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS_matched_centerlines.gpkg"
+    # output_path = f"/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS_{spacing}m_segments.gpkg"
+
+    footprint_path = "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/BRFN_SLU_pipelines_split_polygons.gpkg"
+    centerline_path = "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/BRFN_SLU_pipelines_matched_centerlines.gpkg"
+    output_path = f"/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/BRFN_SLU_pipelines_{spacing}m_segments.gpkg"
 
     # Parameters
-    target_area = 50  # Target area for each segment in square meters
+    target_area = 300  # Target area for each segment in square meters
     extension_distance = 50  # How much to extend the centerline at each end
+    adjustment_factor = 1.35  # Adjustment to get closer to target area
 
-    # Option 1: Debug a single polygon (uncomment to use)
-    # polygon_index = 35  # Change this to debug different polygons
-    # segments = debug_single_polygon(
-    #     footprint_path,
-    #     centerline_path,
-    #     polygon_index=polygon_index,
-    #     target_area=target_area,
-    #     extension_distance=extension_distance
-    # )
-
-    # Option 2: Process all polygons and save results
-    output_gdf = process_all_polygons(
+    # Process all polygons with fixed MultiLineString handling
+    output_gdf = process_all_polygons_fixed(
         footprint_path,
         centerline_path,
         output_path,
-        target_area=target_area,
+        target_area=spacing,
         extension_distance=extension_distance,
-        visualize=False  # Set to True if you want to see visualizations (will be slow for many polygons)
+        adjustment_factor=adjustment_factor
     )
 
     print("\n" + "=" * 60)
     print("PROCESSING COMPLETE")
     print("=" * 60)
+
+    # Check if oWZ9XGZr was processed
+    if output_gdf is not None:
+        if 'UniqueID' in output_gdf.columns:
+            if 'atukXLAN' in output_gdf['UniqueID'].values:
+                segments_for_id = output_gdf[output_gdf['UniqueID'] == 'atukXLAN']
+                print(f"\n✅ SUCCESS: Polygon 'atukXLAN' was processed!")
+                print(f"   Created {len(segments_for_id)} segments")
+            else:
+                print(f"\n⚠️ WARNING: Polygon 'oWZ9XGZr' was not in output!")
 
 
 if __name__ == "__main__":
