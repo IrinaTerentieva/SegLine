@@ -2,9 +2,9 @@
 ### /home/irina/SegLine/src/config/paths.yaml
 
 dataset:
-  ground_footprint: "/media/irina/My Book/Petronas/DATA/vector_data/LineFootprint/PECL_seismiclines_FLAIMcenterline_optunaII_v3_simple_fixFP.gpkg"
+  ground_footprint: "/media/irina/My Book/Petronas/DATA/vector_data/LineFootprint/PECL_seismiclines_v0.42_FLAIMcenterline_optuneII_fixFP.gpkg"
   ground_footprint_layer: null      # null if NO layer
-  centerline: "/media/irina/My Book/Petronas/DATA/vector_data/LineFootprint/PECL_seismiclines_FLAIMcenterline_optunaII_v3.gpkg"
+  centerline: "/media/irina/My Book/Petronas/DATA/vector_data/LineFootprint/PECL_seismiclines_v0.42_FLAIMcenterline_optuneII.gpkg"
   centerline_layer: null            # null if NO layer
   debug: false
   unique_id_length: 8
@@ -22,7 +22,7 @@ smoothening:
 split_to_plots:
   segment_area: 100
   num_workers: 16
-  extension_distance: 100
+  extension_distance: 50
   max_splitter_length_buffer: 50
 
 split_to_side:
@@ -31,7 +31,6 @@ split_to_side:
 
 split_to_subplots:
   segment_area: 10
-  num_workers: 4
-  extension_distance: 50
+  num_workers: 16
   max_splitter_length_buffer: 10
   use_smooth_centerline: true

@@ -108,11 +108,11 @@ def main(cfg: DictConfig):
     # "_ID_segments{segment_area}m2.gpkg" and with prefix "11_"
     segment_area = int(cfg.split_to_side.segment_area)
     input_filename = 'PipelinesOfInterest_FS_segments_50m2'
-    input_path = '/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS_10m_segments.gpkg'
+    input_path = '/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS_100m_segments.gpkg'
     print('Working with: ', input_filename)
 
     # Build the output path by replacing "11_" with "12_" and suffix with "_sides.gpkg"
-    output_filename = '/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS_10m_plots.gpkg'
+    output_filename = '/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS_100m_plots.gpkg'
     output_path = os.path.join(output_dir, output_filename)
 
     logging.info(f"Input for split_to_side: {input_path}")

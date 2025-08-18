@@ -333,7 +333,7 @@ def main():
     Main function - uses the SAME paths as your debug script
     """
     # These are the EXACT paths from your debug script
-    spacing = 10
+    spacing = 50
 
     # footprint_path = "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS_split_polygons.gpkg"
     # centerline_path = "/media/irina/My Book/Petronas/DATA/vector_data/PipelineFootprint/PipelinesOfInterest_FS_matched_centerlines.gpkg"
