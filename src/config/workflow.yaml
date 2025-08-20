@@ -1,14 +1,27 @@
 ### this is workflow.yaml
 ### /home/irina/SegLine/src/config/paths.yaml
 
+
+##### SEISMIC LINES
+#dataset:
+#  ground_footprint: "/media/irina/My Book/Petronas/DATA/vector_data/Final_v.042/PECL_seismiclines_v0.42_FLAIMcenterline_optuneII_19aug25_fixFP.gpkg"
+#  ground_footprint_layer: null      # null if NO layer
+#  centerline: "/media/irina/My Book/Petronas/DATA/vector_data/Final_v.042/PECL_seismiclines_v0.42_FLAIMcenterline_optuneII_19aug25.gpkg"
+#  centerline_layer: null            # null if NO layer
+#  debug: false
+#  unique_id_length: 8
+#  min_length: 20
+
+###### ROADS
 dataset:
-  ground_footprint: "/media/irina/My Book/Petronas/DATA/vector_data/LineFootprint/PECL_seismiclines_v0.42_FLAIMcenterline_optuneII_fixFP.gpkg"
+  ground_footprint: "/media/irina/My Book/Petronas/DATA/vector_data/Final_v.042/roads/PECL_roads_v0.43_FLAIM_fixFP.gpkg"
   ground_footprint_layer: null      # null if NO layer
-  centerline: "/media/irina/My Book/Petronas/DATA/vector_data/LineFootprint/PECL_seismiclines_v0.42_FLAIMcenterline_optuneII.gpkg"
+  centerline: "/media/irina/My Book/Petronas/DATA/vector_data/Final_v.042/roads/PECL_roads_v0.43_FLAIM.gpkg"
   centerline_layer: null            # null if NO layer
   debug: false
   unique_id_length: 8
   min_length: 20
+
 
 smoothening:
   use_assign_id_output: true
@@ -20,17 +33,17 @@ smoothening:
   num_workers: 4
 
 split_to_plots:
-  segment_area: 100
+  segment_area: 500
   num_workers: 16
   extension_distance: 50
   max_splitter_length_buffer: 50
 
 split_to_side:
-  segment_area: 100
+  segment_area: 500
   min_area: 5
 
 split_to_subplots:
-  segment_area: 10
+  segment_area: 100         # Should be 1/5 of plot area!!!
   num_workers: 16
   max_splitter_length_buffer: 10
   use_smooth_centerline: true
