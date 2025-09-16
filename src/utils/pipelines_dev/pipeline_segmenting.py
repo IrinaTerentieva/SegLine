@@ -333,7 +333,7 @@ def main():
     Main function - uses the SAME paths as your debug script
     """
     # These are the EXACT paths from your debug script
-    spacing = 10
+    spacing = 50
 
     # footprint_path = "/path/to/data.gpkg"
     # centerline_path = "/path/to/data.gpkg"
