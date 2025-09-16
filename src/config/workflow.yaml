@@ -1,10 +1,13 @@
 ### this is workflow.yaml
 ### src/config/paths.yaml
 
+params:
+  splitting_method: "length"  # choose to split plots/subplots by fixed "length" or fixed "area"
+
 dataset:
-  ground_footprint: "/path/to/data.gpkg"
+  ground_footprint: "/path/to/data.shp"
   ground_footprint_layer: null      # null if NO layer
-  centerline: "/path/to/data.gpkg"
+  centerline: "/path/to/data.shp"
   centerline_layer: null            # null if NO layer
   debug: false
   unique_id_length: 8
@@ -12,7 +15,7 @@ dataset:
 
 smoothening:
   use_assign_id_output: true
-  perform_smoothing: false
+  perform_smoothing: true
   # When not using assign_ID output, set an alternative centerline path here.
   centerline: "/path/to/data.shp"
   angle_threshold: 120   # Lower threshold triggers smoothing on more vertices
@@ -20,18 +23,21 @@ smoothening:
   num_workers: 4
 
 split_to_plots:
-  segment_area: 100
-  num_workers: 16
-  extension_distance: 100
+  segment_area: 500  # Set if splitting_method set to area
+  segment_length: 50  # Set if splitting_method set to length
+  num_workers: 4
+  extension_distance: 50
   max_splitter_length_buffer: 50
 
 split_to_side:
-  segment_area: 100
+  segment_area: ${split_to_plots.segment_area}  # Set if splitting_method set to area
+  segment_length: ${split_to_plots.segment_length}  # Set if splitting_method set to length
   min_area: 5
 
 split_to_subplots:
-  segment_area: 10
+  segment_area: 50  # Set if splitting_method set to area
+  segment_length: 10  # Set if splitting_method set to length
   num_workers: 4
-  extension_distance: 50
+  extension_distance: ${split_to_plots.extension_distance}  # Must be the same as the split_to_plots extension_distance
   max_splitter_length_buffer: 10
   use_smooth_centerline: true
