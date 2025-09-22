@@ -271,16 +271,27 @@ def process_subplots_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
         split_polygons_gdf = split_polygons_gdf.reset_index(drop=True)
         split_polygons_gdf['subplot_id'] = split_polygons_gdf.index
 
-        # Save results
-        split_polygons_gdf.to_file(output_path, driver="GPKG")
-        logging.info(f"Split polygons saved to: {output_path}")
-        logging.info(f"Created {len(split_polygons_gdf)} subplots from {len(footprint_gdf)} polygons")
+        # --- VERY LAST STEP: clean empties/zero-area before writing (NEW) ---
+        split_polygons_gdf = clean_empty_geometries(split_polygons_gdf)
 
-        # Log statistics
-        avg_area = split_polygons_gdf['area'].mean()
-        median_area = split_polygons_gdf['area'].median()
-        logging.info(f"Average subplot area: {avg_area:.2f} m²")
-        logging.info(f"Median subplot area: {median_area:.2f} m²")
+        # Recompute area + subplot_id after cleaning for accurate stats/ids
+        if not split_polygons_gdf.empty:
+            split_polygons_gdf['area'] = split_polygons_gdf.geometry.area
+            split_polygons_gdf = split_polygons_gdf.reset_index(drop=True)
+            split_polygons_gdf['subplot_id'] = split_polygons_gdf.index
+
+            # Save results
+            split_polygons_gdf.to_file(output_path, driver="GPKG")
+            logging.info(f"Split polygons saved to: {output_path}")
+            logging.info(f"Created {len(split_polygons_gdf)} subplots from {len(footprint_gdf)} polygons")
+
+            # Stats
+            avg_area = float(split_polygons_gdf['area'].mean()) if len(split_polygons_gdf) else 0.0
+            median_area = float(split_polygons_gdf['area'].median()) if len(split_polygons_gdf) else 0.0
+            logging.info(f"Average subplot area: {avg_area:.2f} m²")
+            logging.info(f"Median subplot area: {median_area:.2f} m²")
+        else:
+            logging.warning("All split features were removed during cleaning. Nothing to write.")
     else:
         logging.warning("No results generated from subplot splitting")
 
@@ -304,6 +315,58 @@ def plot_perpendiculars(centerline, perpendiculars, output_path):
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close(fig)
     logging.info(f"Plot saved to {output_path}")
+
+
+def clean_empty_geometries(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """
+    Remove features with null/empty geometry or area <= 0 (after fixing simple invalids for area calc).
+    Returns a new GeoDataFrame (does not modify input in place).
+    """
+    if gdf is None or gdf.empty:
+        logging.info("No features to clean (empty GeoDataFrame).")
+        return gdf
+
+    initial = len(gdf)
+
+    # Drop null/empty geometries
+    mask_valid_geom = (~gdf.geometry.isna()) & (~gdf.geometry.is_empty)
+    dropped_empty = int((~mask_valid_geom).sum())
+    if dropped_empty:
+        logging.info(f"Dropping {dropped_empty} features with empty/null geometry")
+    gdf = gdf.loc[mask_valid_geom].copy()
+
+    if gdf.empty:
+        logging.info("All features were empty/null after geometry filter.")
+        return gdf.reset_index(drop=True)
+
+    # Ensure polygonal type only (defensive)
+    poly_like = gdf.geometry.geom_type.isin(["Polygon", "MultiPolygon"])
+    dropped_nonpoly = int((~poly_like).sum())
+    if dropped_nonpoly:
+        logging.info(f"Dropping {dropped_nonpoly} non-polygon geometries")
+    gdf = gdf.loc[poly_like].copy()
+
+    if gdf.empty:
+        logging.info("No polygonal features remain after type filter.")
+        return gdf.reset_index(drop=True)
+
+    # Compute robust area for filtering (use buffer(0) only for area computation, not to overwrite geometry)
+    try:
+        tmp_area = gpd.GeoSeries(gdf.geometry, crs=gdf.crs).buffer(0).area
+    except Exception:
+        # Fallback without buffer if GEOS issues
+        tmp_area = gdf.geometry.area
+
+    area_round = np.round(tmp_area.to_numpy(), 6)  # higher precision; you can relax to 2 if desired
+    positive_area = np.isfinite(area_round) & (area_round > 0.0)
+    dropped_zero = int((~positive_area).sum())
+    if dropped_zero:
+        logging.info(f"Dropping {dropped_zero} features with area <= 0 m²")
+
+    gdf = gdf.loc[positive_area].copy().reset_index(drop=True)
+
+    logging.info(f"Cleaned features: {len(gdf)}/{initial} remain after empty/area filters")
+    return gdf
 
 
 # ----------------------------
@@ -367,7 +430,7 @@ def main(cfg: DictConfig):
     num_workers = cfg.split_to_subplots.get("num_workers", None)
     segment_area = int(cfg.split_to_subplots.segment_area * 2)  # NB - added *2 bc segment_area is for just one side (and there are 2)
     segment_length = int(cfg.split_to_subplots.segment_length)
-    extension_distance = cfg.split_to_subplots.extension_distance
+    extension_distance = cfg.split_to_plots.extension_distance
     max_splitter_length = cfg.split_to_subplots.max_splitter_length_buffer
 
     # Output path
