@@ -2,6 +2,7 @@ import os
 import math
 import logging
 import geopandas as gpd
+import pandas as pd
 from shapely.geometry import LineString, MultiLineString, Polygon, GeometryCollection, Point
 from shapely.ops import split, linemerge, substring, unary_union
 import numpy as np
@@ -12,8 +13,197 @@ import matplotlib.pyplot as plt
 import hydra
 from omegaconf import DictConfig, OmegaConf
 import warnings
+from shapely.geometry import Point
 
 warnings.filterwarnings('ignore')
+
+# -----------------------------
+# Identify subplot pairs
+# -----------------------------
+def get_edge_points(polygon, precision=3):
+    """
+    Extract all edge points from a polygon's exterior.
+    """
+    if polygon.is_empty or not polygon.is_valid:
+        return set()
+    edge_coords = polygon.exterior.coords
+    edge_points = {(round(coord[0], precision), round(coord[1], precision))
+                   for coord in edge_coords}
+    return edge_points
+
+
+def find_subplot_pairs_edge_based(gdf):
+    """
+    Find pairs of subplots using edge point matching within plot groups.
+    This approach is more robust than position-based matching as it directly
+    identifies which subplots share boundaries from perpendicular cuts.
+    """
+    gdf = gdf.copy()
+    gdf['pair_id'] = -1  # Initialize with -1 (unpaired)
+
+    # Check if plot_id exists from split_to_sides
+    if 'plot_id' not in gdf.columns:
+        logging.warning("No plot_id column found. Using pure edge matching across all subplots.")
+        return find_subplot_pairs_pure_edge_matching(gdf)
+
+    global_pair_counter = 0
+
+    # Process each plot_id group (these are already paired sides)
+    unique_plots = gdf[gdf['plot_id'] >= 0]['plot_id'].unique()
+
+    for plot_id in unique_plots:
+        plot_group = gdf[gdf['plot_id'] == plot_id].copy()
+
+        if len(plot_group) < 2:
+            continue
+
+        # Add edge points for all subplots in this group
+        plot_group['edge_points'] = plot_group.geometry.apply(
+            lambda g: get_edge_points(g, precision=3)
+        )
+
+        # Split by side (0 or 1)
+        side_0 = plot_group[plot_group['side'] == 0]
+        side_1 = plot_group[plot_group['side'] == 1]
+
+        if side_0.empty or side_1.empty:
+            continue
+
+        # Track which subplots have been paired
+        paired_indices = set()
+
+        # For each subplot on side 0, find its match on side 1
+        for idx_0, row_0 in side_0.iterrows():
+            if idx_0 in paired_indices:
+                continue
+
+            if row_0.geometry.area < 5:  # Skip very small polygons
+                continue
+
+            best_match = None
+            best_shared_points = 0
+
+            # Check all subplots on the opposite side
+            for idx_1, row_1 in side_1.iterrows():
+                if idx_1 in paired_indices:
+                    continue
+
+                if row_1.geometry.area < 5:  # Skip very small polygons
+                    continue
+
+                # Find shared edge points
+                shared_points = row_0['edge_points'].intersection(row_1['edge_points'])
+
+                # We need at least 2 shared points to consider it a match
+                # (2 points define the edge from the perpendicular cut)
+                if len(shared_points) >= 2:
+                    # If multiple candidates, choose the one with most shared points
+                    if len(shared_points) > best_shared_points:
+                        best_shared_points = len(shared_points)
+                        best_match = idx_1
+
+            # Create pair if match found
+            if best_match is not None:
+                gdf.loc[idx_0, 'pair_id'] = global_pair_counter
+                gdf.loc[best_match, 'pair_id'] = global_pair_counter
+                paired_indices.add(idx_0)
+                paired_indices.add(best_match)
+                global_pair_counter += 1
+
+    return gdf
+
+
+def find_subplot_pairs_pure_edge_matching(gdf):
+    """
+    Fallback method using pure edge matching when no plot_id information is available.
+    Similar to the split_to_sides approach but applied to all subplots.
+    """
+    gdf = gdf.copy()
+    gdf['pair_id'] = -1
+
+    # Process each UniqueID (corridor) separately
+    for unique_id in gdf['UniqueID'].unique():
+        subset = gdf[gdf['UniqueID'] == unique_id].copy()
+
+        if len(subset) < 2:
+            continue
+
+        # Calculate edge points for all subplots
+        subset['edge_points'] = subset.geometry.apply(
+            lambda g: get_edge_points(g, precision=3)
+        )
+        subset['centroid'] = subset.geometry.centroid
+        subset['area'] = subset.geometry.area
+
+        # Filter out very small polygons
+        subset = subset[subset['area'] >= 5]
+
+        if len(subset) < 2:
+            continue
+
+        # Determine corridor orientation to help identify sides
+        all_centroids = subset['centroid']
+        x_coords = [c.x for c in all_centroids]
+        y_coords = [c.y for c in all_centroids]
+        x_range = max(x_coords) - min(x_coords)
+        y_range = max(y_coords) - min(y_coords)
+        is_horizontal = x_range > y_range
+
+        # Calculate median perpendicular position to identify sides
+        if is_horizontal:
+            median_y = np.median(y_coords)
+            subset['side_indicator'] = subset['centroid'].apply(lambda c: 0 if c.y < median_y else 1)
+        else:
+            median_x = np.median(x_coords)
+            subset['side_indicator'] = subset['centroid'].apply(lambda c: 0 if c.x < median_x else 1)
+
+        pair_counter = 0
+        paired_indices = set()
+
+        # Process each subplot on side 0
+        side_0 = subset[subset['side_indicator'] == 0]
+        side_1 = subset[subset['side_indicator'] == 1]
+
+        for idx_0, row_0 in side_0.iterrows():
+            if idx_0 in paired_indices:
+                continue
+
+            best_match = None
+            best_score = 0
+
+            for idx_1, row_1 in side_1.iterrows():
+                if idx_1 in paired_indices:
+                    continue
+
+                # Calculate shared edge points
+                shared_points = row_0['edge_points'].intersection(row_1['edge_points'])
+
+                if len(shared_points) >= 2:
+                    # Score based on number of shared points and area similarity
+                    area_ratio = min(row_0['area'], row_1['area']) / max(row_0['area'], row_1['area'])
+                    score = len(shared_points) * (1 + area_ratio)
+
+                    if score > best_score:
+                        best_score = score
+                        best_match = idx_1
+
+            # Create pair if good match found
+            if best_match is not None:
+                gdf.loc[idx_0, 'pair_id'] = pair_counter
+                gdf.loc[best_match, 'pair_id'] = pair_counter
+                paired_indices.add(idx_0)
+                paired_indices.add(best_match)
+                pair_counter += 1
+
+    return gdf
+
+
+# Replace the existing find_subplot_pairs function in your split_to_subplots.py with this:
+def find_subplot_pairs(gdf):
+    """
+    Main function to find subplot pairs - uses edge-based matching for reliability.
+    """
+    return find_subplot_pairs_edge_based(gdf)
 
 
 # -----------------------------
@@ -271,8 +461,20 @@ def process_subplots_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
         split_polygons_gdf = split_polygons_gdf.reset_index(drop=True)
         split_polygons_gdf['subplot_id'] = split_polygons_gdf.index
 
-        # --- VERY LAST STEP: clean empties/zero-area before writing (NEW) ---
+        # Clean empties/zero-area features
         split_polygons_gdf = clean_empty_geometries(split_polygons_gdf)
+
+        # Find subplot pairs using subplot ordering relationships (along centerline) - NEW
+        logging.info("Pairing subplots...")
+        split_polygons_gdf = find_subplot_pairs(split_polygons_gdf)
+
+        # Log pairing statistics
+        paired = split_polygons_gdf[split_polygons_gdf['pair_id'] >= 0]
+        unpaired = split_polygons_gdf[split_polygons_gdf['pair_id'] < 0]
+        n_pairs = paired['pair_id'].nunique() if not paired.empty else 0
+
+        logging.info(f"Pairing results: {len(paired)} subplots in {n_pairs} pairs, "
+                     f"{len(unpaired)} unpaired")
 
         # Recompute area + subplot_id after cleaning for accurate stats/ids
         if not split_polygons_gdf.empty:
