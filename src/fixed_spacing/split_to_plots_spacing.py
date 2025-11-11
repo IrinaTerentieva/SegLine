@@ -65,13 +65,15 @@ def extend_line(line: LineString, extension_distance=100):
         return line
 
 
-def generate_perpendiculars(centerline, avg_width, target_area, max_splitter_length=10):
+def generate_perpendiculars(centerline, spacing, max_splitter_length=10):
     """
-    Generate perpendicular lines to the centerline at intervals calculated to achieve a target area.
+    Generate perpendicular lines to the centerline at fixed intervals.
+
+    Args:
+        centerline: LineString geometry
+        spacing: Fixed distance in meters between perpendiculars
+        max_splitter_length: Maximum length of perpendicular lines
     """
-    if avg_width <= 0:
-        avg_width = 5
-    spacing = target_area / avg_width
     if spacing <= 0 or centerline.length <= 0:
         return []
 
@@ -120,7 +122,7 @@ def process_polygon_worker(args):
     Worker function for multiprocessing. Unpacks arguments and processes a single polygon.
     """
     (idx, footprint_row_dict, geometry_wkt, centerlines_by_id, smooth_centerlines_by_id,
-     target_area, extension_distance, width_column, crs) = args
+     spacing, extension_distance, width_column, crs) = args
 
     try:
         # Reconstruct geometry from WKT
@@ -136,8 +138,6 @@ def process_polygon_worker(args):
 
         if max_width <= 5:
             max_width = 15
-        if avg_width >= 9:
-            target_area = int(target_area * 2)
 
         # Get centerlines from dictionaries
         centerline_wkt = centerlines_by_id.get(unique_id)
@@ -159,13 +159,13 @@ def process_polygon_worker(args):
         extended_smooth_centerline = extend_line(smooth_centerline_geom, extension_distance)
 
         # Try smooth centerline first
-        perpendiculars = generate_perpendiculars(extended_smooth_centerline, avg_width,
-                                                 target_area, max_splitter_length=max_width)
+        perpendiculars = generate_perpendiculars(extended_smooth_centerline, spacing,
+                                                 max_splitter_length=max_width)
 
         # Fall back to regular centerline if needed
         if len(perpendiculars) < 5:
-            perpendiculars = generate_perpendiculars(extended_centerline, avg_width,
-                                                     target_area, max_splitter_length=max_width)
+            perpendiculars = generate_perpendiculars(extended_centerline, spacing,
+                                                     max_splitter_length=max_width)
 
         # Split polygon
         segments = split_geometry(polygon, extended_centerline)
@@ -192,7 +192,7 @@ def process_polygon_worker(args):
 
 
 def process_polygons_parallel_optimized(footprint_gdf, centerline_gdf, smooth_centerline_gdf,
-                                        target_area, output_path, extension_distance, width_column, max_workers=None):
+                                        spacing, output_path, extension_distance, width_column, max_workers=None):
     """
     Optimized parallel processing using multiprocessing.Pool instead of ProcessPoolExecutor.
     """
@@ -223,7 +223,7 @@ def process_polygons_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
             geometry_wkt = row.geometry.wkt
 
             args = (idx, row_dict, geometry_wkt, centerlines_by_id, smooth_centerlines_by_id,
-                    target_area, extension_distance, width_column, footprint_gdf.crs)
+                    spacing, extension_distance, width_column, footprint_gdf.crs)
             worker_args.append(args)
 
     # Process in parallel
@@ -316,20 +316,20 @@ def main(cfg: DictConfig):
 
     # Configuration parameters
     num_workers = cfg.split_to_plots.get("num_workers", None)
-    segment_area = int(cfg.split_to_plots.segment_area)
+    spacing = float(cfg.split_to_plots.perpendicular_spacing)
     extension_distance = cfg.split_to_plots.extension_distance
     max_splitter_length = cfg.split_to_plots.max_splitter_length_buffer
 
     # Output path
     output_dir = os.path.dirname(footprint_path)
-    output_filename = os.path.basename(footprint_path).replace(".gpkg", f"_segments{segment_area}m2.gpkg")
+    output_filename = os.path.basename(footprint_path).replace(".gpkg", f"_segments{int(spacing)}m.gpkg")
     output_path = os.path.join(output_dir, output_filename)
 
     logging.info(f"Footprint path: {footprint_path}")
     logging.info(f"Regular centerline path: {regular_centerline_path}")
     logging.info(f"Smooth centerline path: {smooth_centerline_path}")
     logging.info(f"Output path: {output_path}")
-    logging.info(f"Parameters: segment_area={segment_area}m², extension={extension_distance}m")
+    logging.info(f"Parameters: perpendicular_spacing={spacing}m, extension={extension_distance}m")
 
     # Read input data
     try:
@@ -351,7 +351,7 @@ def main(cfg: DictConfig):
         footprint_gdf,
         regular_centerline_gdf,
         smooth_centerline_gdf,
-        segment_area,
+        spacing,
         output_path,
         extension_distance=extension_distance,
         width_column=cfg.dataset.width_column,

@@ -11,7 +11,6 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import hydra
 from omegaconf import DictConfig, OmegaConf
-import pickle
 import warnings
 
 warnings.filterwarnings('ignore')
@@ -65,13 +64,15 @@ def extend_line(line: LineString, extension_distance=100):
         return line
 
 
-def generate_perpendiculars(centerline, avg_width, target_area, max_splitter_length=10):
+def generate_perpendiculars(centerline, spacing, max_splitter_length=10):
     """
-    Generate perpendicular lines to the centerline at intervals calculated to achieve a target area.
+    Generate perpendicular lines to the centerline at fixed intervals.
+
+    Args:
+        centerline: LineString geometry
+        spacing: Fixed distance in meters between perpendiculars
+        max_splitter_length: Maximum length of perpendicular lines
     """
-    if avg_width <= 0:
-        avg_width = 5
-    spacing = target_area / avg_width
     if spacing <= 0 or centerline.length <= 0:
         return []
 
@@ -115,12 +116,12 @@ def split_geometry(geometry, splitter):
         return []
 
 
-def process_polygon_worker(args):
+def process_subplot_worker(args):
     """
     Worker function for multiprocessing. Unpacks arguments and processes a single polygon.
     """
     (idx, footprint_row_dict, geometry_wkt, centerlines_by_id, smooth_centerlines_by_id,
-     target_area, extension_distance, width_column, crs) = args
+     spacing, extension_distance, width_column, crs) = args
 
     try:
         # Reconstruct geometry from WKT
@@ -136,14 +137,13 @@ def process_polygon_worker(args):
 
         if max_width <= 5:
             max_width = 15
-        if avg_width >= 9:
-            target_area = int(target_area * 2)
 
         # Get centerlines from dictionaries
         centerline_wkt = centerlines_by_id.get(unique_id)
         smooth_centerline_wkt = smooth_centerlines_by_id.get(unique_id)
 
         if not centerline_wkt or not smooth_centerline_wkt:
+            logging.debug(f"No centerlines for UniqueID: {unique_id}")
             return []
 
         # Reconstruct geometries
@@ -159,13 +159,14 @@ def process_polygon_worker(args):
         extended_smooth_centerline = extend_line(smooth_centerline_geom, extension_distance)
 
         # Try smooth centerline first
-        perpendiculars = generate_perpendiculars(extended_smooth_centerline, avg_width,
-                                                 target_area, max_splitter_length=max_width)
+        perpendiculars = generate_perpendiculars(extended_smooth_centerline, spacing,
+                                                 max_splitter_length=max_width)
 
         # Fall back to regular centerline if needed
         if len(perpendiculars) < 5:
-            perpendiculars = generate_perpendiculars(extended_centerline, avg_width,
-                                                     target_area, max_splitter_length=max_width)
+            logging.debug(f'Bad perpendiculars for {unique_id}, switching to regular centerline')
+            perpendiculars = generate_perpendiculars(extended_centerline, spacing,
+                                                     max_splitter_length=max_width)
 
         # Split polygon
         segments = split_geometry(polygon, extended_centerline)
@@ -178,23 +179,24 @@ def process_polygon_worker(args):
         # Return results
         results = []
         for part_id, segment in enumerate(segments):
-            result = footprint_row_dict.copy()
-            result['geometry'] = segment.wkt  # Store as WKT for serialization
-            result['PartID'] = part_id
-            result['original_idx'] = idx
-            results.append(result)
+            if segment.area > 0:  # Only include valid segments
+                result = footprint_row_dict.copy()
+                result['geometry'] = segment.wkt  # Store as WKT for serialization
+                result['PartID'] = part_id
+                result['original_idx'] = idx
+                results.append(result)
 
         return results
 
     except Exception as e:
-        logging.error(f"Error processing polygon {idx}: {e}")
+        logging.error(f"Error processing subplot {idx}: {e}")
         return []
 
 
-def process_polygons_parallel_optimized(footprint_gdf, centerline_gdf, smooth_centerline_gdf,
-                                        target_area, output_path, extension_distance, width_column, max_workers=None):
+def process_subplots_parallel_optimized(footprint_gdf, centerline_gdf, smooth_centerline_gdf,
+                                        spacing, output_path, extension_distance, width_column, max_workers=None):
     """
-    Optimized parallel processing using multiprocessing.Pool instead of ProcessPoolExecutor.
+    Optimized parallel processing using multiprocessing.Pool.
     """
     if max_workers is None:
         max_workers = min(cpu_count(), 8)
@@ -213,6 +215,10 @@ def process_polygons_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
         if row['UniqueID'] and row.geometry:
             smooth_centerlines_by_id[row['UniqueID']] = row.geometry.wkt
 
+    # Log statistics
+    logging.info(f"Loaded {len(centerlines_by_id)} regular centerlines")
+    logging.info(f"Loaded {len(smooth_centerlines_by_id)} smooth centerlines")
+
     # Prepare arguments for workers
     worker_args = []
     for idx, row in footprint_gdf.iterrows():
@@ -223,17 +229,24 @@ def process_polygons_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
             geometry_wkt = row.geometry.wkt
 
             args = (idx, row_dict, geometry_wkt, centerlines_by_id, smooth_centerlines_by_id,
-                    target_area, extension_distance, width_column, footprint_gdf.crs)
+                    spacing, extension_distance, width_column, footprint_gdf.crs)
             worker_args.append(args)
+
+    logging.info(f"Processing {len(worker_args)} polygons...")
 
     # Process in parallel
     results = []
+    successful_count = 0
+
     with Pool(processes=max_workers) as pool:
         # Use imap for better memory efficiency and progress tracking
-        for result_batch in tqdm(pool.imap(process_polygon_worker, worker_args, chunksize=10),
-                                 total=len(worker_args), desc="Processing polygons"):
+        for result_batch in tqdm(pool.imap(process_subplot_worker, worker_args, chunksize=10),
+                                 total=len(worker_args), desc="Processing subplots"):
             if result_batch:
                 results.extend(result_batch)
+                successful_count += 1
+
+    logging.info(f"Successfully processed {successful_count}/{len(worker_args)} polygons")
 
     # Convert results back to GeoDataFrame
     if results:
@@ -248,16 +261,46 @@ def process_polygons_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
         # Calculate areas
         split_polygons_gdf['area'] = split_polygons_gdf.geometry.area
 
-        # Drop temporary columns
+        # Drop temporary columns and reset index
         if 'original_idx' in split_polygons_gdf.columns:
             split_polygons_gdf = split_polygons_gdf.drop(columns=['original_idx'])
+
+        split_polygons_gdf = split_polygons_gdf.reset_index(drop=True)
+        split_polygons_gdf['subplot_id'] = split_polygons_gdf.index
 
         # Save results
         split_polygons_gdf.to_file(output_path, driver="GPKG")
         logging.info(f"Split polygons saved to: {output_path}")
-        logging.info(f"Created {len(split_polygons_gdf)} segments from {len(footprint_gdf)} polygons")
+        logging.info(f"Created {len(split_polygons_gdf)} subplots from {len(footprint_gdf)} polygons")
+
+        # Log statistics
+        avg_area = split_polygons_gdf['area'].mean()
+        median_area = split_polygons_gdf['area'].median()
+        logging.info(f"Average subplot area: {avg_area:.2f} m²")
+        logging.info(f"Median subplot area: {median_area:.2f} m²")
     else:
-        logging.warning("No results generated from polygon splitting")
+        logging.warning("No results generated from subplot splitting")
+
+
+def plot_perpendiculars(centerline, perpendiculars, output_path):
+    """
+    Plot centerline and perpendiculars for debugging.
+    """
+    fig, ax = plt.subplots(figsize=(10, 6))
+    if isinstance(centerline, LineString):
+        x, y = centerline.xy
+        ax.plot(x, y, label="Centerline", color="blue", linewidth=2)
+    for perp in perpendiculars:
+        if isinstance(perp, LineString):
+            px, py = perp.xy
+            ax.plot(px, py, color="red", linewidth=1)
+    ax.set_xlabel("X Coordinate")
+    ax.set_ylabel("Y Coordinate")
+    ax.set_title("Centerline and Perpendiculars")
+    ax.legend()
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    logging.info(f"Plot saved to {output_path}")
 
 
 # ----------------------------
@@ -304,32 +347,45 @@ def main(cfg: DictConfig):
     logging.basicConfig(level=log_level, format='%(asctime)s - %(levelname)s - %(message)s')
     logging.info("Configuration:\n" + OmegaConf.to_yaml(cfg))
 
-    # Determine paths
-    footprint_path = update_path_with_suffix(cfg.dataset.ground_footprint, "_footprint_ID")
-    regular_centerline_path = update_path_with_suffix(cfg.dataset.centerline, "_centerline_ID")
+    # Get spacing from split_to_plots (used in filename)
+    plot_spacing = int(cfg.split_to_plots.perpendicular_spacing)
 
-    # Get the smooth centerline path if smoothing is enabled
-    if cfg.split_to_plots.get("use_smooth_centerline", True) and cfg.smoothening.get("perform_smoothing", True):
+    # Build input path from split_to_sides output
+    # This should be: {base}_footprint_ID_segments{plot_spacing}m_sides.gpkg
+    footprint_base = update_path_with_suffix(cfg.dataset.ground_footprint, "_footprint_ID")
+    footprint_path = footprint_base.replace(".gpkg", f"_segments{plot_spacing}m_sides.gpkg")
+
+    # Get centerline paths based on configuration
+    if cfg.split_to_subplots.get("use_smooth_centerline", True) and cfg.smoothening.get("perform_smoothing", True):
+        centerline_path = update_path_with_suffix(cfg.dataset.centerline, "_centerline_ID")
         smooth_centerline_path = update_path_with_suffix(cfg.dataset.centerline, "_centerline_ID_smooth")
     else:
-        smooth_centerline_path = regular_centerline_path
+        # If no smoothing, use regular centerline for both
+        centerline_path = update_path_with_suffix(cfg.dataset.centerline, "_centerline_ID")
+        smooth_centerline_path = centerline_path
 
     # Configuration parameters
-    num_workers = cfg.split_to_plots.get("num_workers", None)
-    segment_area = int(cfg.split_to_plots.segment_area)
+    num_workers = cfg.split_to_subplots.get("num_workers", None)
+    subplot_spacing = float(cfg.split_to_subplots.perpendicular_spacing)
     extension_distance = cfg.split_to_plots.extension_distance
-    max_splitter_length = cfg.split_to_plots.max_splitter_length_buffer
+    max_splitter_length = cfg.split_to_subplots.max_splitter_length_buffer
 
-    # Output path
+    # Output path - build from the _sides.gpkg input path
     output_dir = os.path.dirname(footprint_path)
-    output_filename = os.path.basename(footprint_path).replace(".gpkg", f"_segments{segment_area}m2.gpkg")
+    output_filename = os.path.basename(footprint_path).replace("_sides.gpkg", f"_subplots{int(subplot_spacing)}m.gpkg")
     output_path = os.path.join(output_dir, output_filename)
 
-    logging.info(f"Footprint path: {footprint_path}")
-    logging.info(f"Regular centerline path: {regular_centerline_path}")
+    logging.info(f"Input footprint (sides) path: {footprint_path}")
+    logging.info(f"Regular centerline path: {centerline_path}")
     logging.info(f"Smooth centerline path: {smooth_centerline_path}")
     logging.info(f"Output path: {output_path}")
-    logging.info(f"Parameters: segment_area={segment_area}m², extension={extension_distance}m")
+    logging.info(f"Parameters: perpendicular_spacing={subplot_spacing}m, extension={extension_distance}m")
+
+    # Check if input file exists
+    if not os.path.exists(footprint_path):
+        logging.error(f"Input file does not exist: {footprint_path}")
+        logging.error("Make sure split_to_sides has been run first!")
+        return
 
     # Read input data
     try:
@@ -337,28 +393,28 @@ def main(cfg: DictConfig):
         footprint_gdf = read_vector_file(footprint_path)
 
         logging.info("Reading centerline data...")
-        regular_centerline_gdf = read_vector_file(regular_centerline_path)
+        centerline_gdf = read_vector_file(centerline_path)
         smooth_centerline_gdf = read_vector_file(smooth_centerline_path)
 
-        logging.info(f"Loaded {len(footprint_gdf)} footprints, {len(regular_centerline_gdf)} centerlines")
+        logging.info(f"Loaded {len(footprint_gdf)} footprints, {len(centerline_gdf)} centerlines")
 
     except Exception as e:
         logging.error(f"Failed to read input files: {e}")
         return
 
-    # Process polygons
-    process_polygons_parallel_optimized(
+    # Process subplots
+    process_subplots_parallel_optimized(
         footprint_gdf,
-        regular_centerline_gdf,
+        centerline_gdf,
         smooth_centerline_gdf,
-        segment_area,
+        subplot_spacing,
         output_path,
         extension_distance=extension_distance,
         width_column=cfg.dataset.width_column,
         max_workers=num_workers
     )
 
-    logging.info("Processing complete!")
+    logging.info("Subplot processing complete!")
 
 
 if __name__ == "__main__":
