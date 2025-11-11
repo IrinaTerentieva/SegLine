@@ -119,7 +119,7 @@ def process_subplot_worker(args):
     Worker function for multiprocessing. Unpacks arguments and processes a single polygon.
     """
     (idx, footprint_row_dict, geometry_wkt, centerlines_by_id, smooth_centerlines_by_id,
-     target_area, extension_distance, crs) = args
+     target_area, extension_distance, width_column, crs) = args
 
     try:
         # Reconstruct geometry from WKT
@@ -127,7 +127,10 @@ def process_subplot_worker(args):
         polygon = wkt.loads(geometry_wkt)
 
         unique_id = footprint_row_dict["UniqueID"]
-        avg_width = footprint_row_dict.get("avg_width", 0)
+
+        # Get width column name from config (passed as parameter)
+        avg_width = footprint_row_dict.get(width_column, 0)
+
         max_width = avg_width + 10
 
         if max_width <= 5:
@@ -191,7 +194,7 @@ def process_subplot_worker(args):
 
 
 def process_subplots_parallel_optimized(footprint_gdf, centerline_gdf, smooth_centerline_gdf,
-                                        target_area, output_path, extension_distance=50, max_workers=None):
+                                        target_area, output_path, extension_distance, width_column, max_workers=None):
     """
     Optimized parallel processing using multiprocessing.Pool.
     """
@@ -226,7 +229,7 @@ def process_subplots_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
             geometry_wkt = row.geometry.wkt
 
             args = (idx, row_dict, geometry_wkt, centerlines_by_id, smooth_centerlines_by_id,
-                    target_area, extension_distance, footprint_gdf.crs)
+                    target_area, extension_distance, width_column, footprint_gdf.crs)
             worker_args.append(args)
 
     logging.info(f"Processing {len(worker_args)} polygons...")
@@ -396,6 +399,7 @@ def main(cfg: DictConfig):
         segment_area,
         output_path,
         extension_distance=extension_distance,
+        width_column=cfg.dataset.width_column,
         max_workers=num_workers
     )
 

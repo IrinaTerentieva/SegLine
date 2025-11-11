@@ -19,31 +19,34 @@ dataset:
   centerline: "/path/to/data.gpkg"
   centerline_layer: null            # null if NO layer
   debug: false
-  unique_id_length: 8
+  unique_id_length: 3
   min_length: 20
+  width_column: "width_neg1"  # Column name for width values in your data
 
 
 smoothening:
   use_assign_id_output: true
   perform_smoothing: false
   # When not using assign_ID output, set an alternative centerline path here.
-  centerline: "/path/to/data.shp"
+  centerline: "/path/to/data.gpkg"
   angle_threshold: 120   # Lower threshold triggers smoothing on more vertices
   buffer_distance: 2     # Increase buffer for stronger smoothing
   num_workers: 4
 
 split_to_plots:
-  segment_area: 500
+  segment_area: 100
   num_workers: 16
   extension_distance: 50
   max_splitter_length_buffer: 50
+  perpendicular_spacing: 50  # Fixed spacing in meters between perpendiculars
 
 split_to_side:
-  segment_area: 500
+  segment_area: 100
   min_area: 5
 
 split_to_subplots:
-  segment_area: 100         # Should be 1/5 of plot area!!!
+  segment_area: 20         # Should be 1/5 of plot area!!!
   num_workers: 16
-  max_splitter_length_buffer: 10
+  max_splitter_length_buffer: 50
   use_smooth_centerline: true
+  perpendicular_spacing: 10  # Fixed spacing in meters between perpendiculars
