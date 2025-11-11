@@ -98,6 +98,9 @@ def main(cfg: DictConfig):
     logging.basicConfig(level=log_level)
     logging.info("Configuration:\n" + OmegaConf.to_yaml(cfg))
 
+    # Get splitting method
+    splitting_method = cfg.params.splitting_method
+
     # Use the UniqueID output from the previous split_to_plots step.
     # Output directory will be the same as the input file directory.
     output_dir = os.path.dirname(cfg.dataset.ground_footprint)
@@ -107,17 +110,29 @@ def main(cfg: DictConfig):
     # Assume the split_to_plots step produced a file with name ending in
     # "_ID_segments{segment_area}m2.gpkg" and with prefix "11_"
     segment_area = int(cfg.split_to_side.segment_area)
-    input_filename = os.path.basename(footprint_path).replace("_ID.gpkg", f"_footprint_ID_segments{segment_area}m2.gpkg")
+    segment_length = int(cfg.split_to_side.segment_length)
+
+    if splitting_method == "length":
+        input_filename = os.path.basename(footprint_path).replace("_ID.gpkg",f"_footprint_ID_segments{segment_length}m.gpkg")
+        output_filename = input_filename.replace(f"footprint_ID_segments{segment_length}m.gpkg", "sides.gpkg")
+
+    elif splitting_method == "area":
+        input_filename = os.path.basename(footprint_path).replace("_ID.gpkg", f"_footprint_ID_segments{segment_area}m2.gpkg")
+        output_filename = input_filename.replace(f"footprint_ID_segments{segment_area}m2.gpkg", "sides.gpkg")
+
+
+    # Build the input and output paths
     input_path = os.path.join(output_dir, input_filename)
     print('Working with: ', input_filename)
-
-    # Build the output path by replacing "11_" with "12_" and suffix with "_sides.gpkg"
-    output_filename = input_filename.replace(f"footprint_ID_segments{segment_area}m2.gpkg", "sides.gpkg")
     output_path = os.path.join(output_dir, output_filename)
 
+    logging.info(f"Footprint splitting method: {splitting_method}")
     logging.info(f"Input for split_to_side: {input_path}")
     logging.info(f"Output for split_to_side: {output_path}")
-    logging.info(f"Segment area: {segment_area} m2")
+    if splitting_method == "length":
+        logging.info(f"Segment length: {segment_length} m")
+    elif splitting_method == "area":
+        logging.info(f"Segment area: {segment_area} m2")
 
     # Read input GeoDataFrame
     gdf = gpd.read_file(input_path)
