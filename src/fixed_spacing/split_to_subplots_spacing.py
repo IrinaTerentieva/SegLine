@@ -258,8 +258,10 @@ def process_subplots_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
 
         split_polygons_gdf = gpd.GeoDataFrame(results, crs=footprint_gdf.crs)
 
-        # Calculate areas
+        # Calculate areas and lengths
         split_polygons_gdf['area'] = split_polygons_gdf.geometry.area
+        split_polygons_gdf['length'] = split_polygons_gdf.geometry.length
+        split_polygons_gdf['perimeter'] = split_polygons_gdf.geometry.length  # Same as length for polygons
 
         # Drop temporary columns and reset index
         if 'original_idx' in split_polygons_gdf.columns:
@@ -276,8 +278,12 @@ def process_subplots_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
         # Log statistics
         avg_area = split_polygons_gdf['area'].mean()
         median_area = split_polygons_gdf['area'].median()
+        avg_length = split_polygons_gdf['length'].mean()
+        median_length = split_polygons_gdf['length'].median()
         logging.info(f"Average subplot area: {avg_area:.2f} m²")
         logging.info(f"Median subplot area: {median_area:.2f} m²")
+        logging.info(f"Average perimeter: {avg_length:.2f} m")
+        logging.info(f"Median perimeter: {median_length:.2f} m")
     else:
         logging.warning("No results generated from subplot splitting")
 

@@ -245,8 +245,10 @@ def process_polygons_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
 
         split_polygons_gdf = gpd.GeoDataFrame(results, crs=footprint_gdf.crs)
 
-        # Calculate areas
+        # Calculate areas and lengths
         split_polygons_gdf['area'] = split_polygons_gdf.geometry.area
+        split_polygons_gdf['length'] = split_polygons_gdf.geometry.length
+        split_polygons_gdf['perimeter'] = split_polygons_gdf.geometry.length  # Same as length for polygons
 
         # Drop temporary columns
         if 'original_idx' in split_polygons_gdf.columns:
