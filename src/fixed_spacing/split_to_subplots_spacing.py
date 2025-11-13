@@ -263,12 +263,29 @@ def process_subplots_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
         split_polygons_gdf['length'] = split_polygons_gdf.geometry.length
         split_polygons_gdf['perimeter'] = split_polygons_gdf.geometry.length  # Same as length for polygons
 
-        # Drop temporary columns and reset index
+        # Drop temporary columns
         if 'original_idx' in split_polygons_gdf.columns:
             split_polygons_gdf = split_polygons_gdf.drop(columns=['original_idx'])
 
-        split_polygons_gdf = split_polygons_gdf.reset_index(drop=True)
+        # Sort for consistent ordering and assign globally unique subplot_id
+        # Check if plot_id exists (it should from split_to_side)
+        if 'plot_id' in split_polygons_gdf.columns:
+            # Sort by UniqueID, plot_id, side, and PartID for consistent ordering
+            sort_cols = ['UniqueID', 'plot_id']
+            if 'side' in split_polygons_gdf.columns:
+                sort_cols.append('side')
+            sort_cols.append('PartID')
+            split_polygons_gdf = split_polygons_gdf.sort_values(sort_cols).reset_index(drop=True)
+
+            logging.info(f"Processing subplots across {split_polygons_gdf['plot_id'].nunique()} plot groups")
+        else:
+            # Fallback if plot_id doesn't exist
+            logging.warning("plot_id column not found")
+            split_polygons_gdf = split_polygons_gdf.reset_index(drop=True)
+
+        # Assign globally unique subplot_id (like FID)
         split_polygons_gdf['subplot_id'] = split_polygons_gdf.index
+        logging.info(f"Assigned globally unique subplot_id to {len(split_polygons_gdf)} subplots")
 
         # Save results
         split_polygons_gdf.to_file(output_path, driver="GPKG")
@@ -284,6 +301,16 @@ def process_subplots_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
         logging.info(f"Median subplot area: {median_area:.2f} m²")
         logging.info(f"Average perimeter: {avg_length:.2f} m")
         logging.info(f"Median perimeter: {median_length:.2f} m")
+
+        # Log subplot distribution by plot_id
+        if 'plot_id' in split_polygons_gdf.columns:
+            subplots_per_plot = split_polygons_gdf.groupby('plot_id').size()
+            logging.info(
+                f"Subplots per plot - Mean: {subplots_per_plot.mean():.1f}, Median: {subplots_per_plot.median():.0f}, Max: {subplots_per_plot.max()}")
+            logging.info(f"Total unique plot_id values: {split_polygons_gdf['plot_id'].nunique()}")
+
+        logging.info(
+            f"Subplot ID range: {split_polygons_gdf['subplot_id'].min()} to {split_polygons_gdf['subplot_id'].max()}")
     else:
         logging.warning("No results generated from subplot splitting")
 
