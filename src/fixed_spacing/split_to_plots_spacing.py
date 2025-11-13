@@ -252,6 +252,12 @@ def process_polygons_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
         if 'original_idx' in split_polygons_gdf.columns:
             split_polygons_gdf = split_polygons_gdf.drop(columns=['original_idx'])
 
+        # Add globally unique segment_id
+        split_polygons_gdf = split_polygons_gdf.reset_index(drop=True)
+        split_polygons_gdf['segment_id'] = split_polygons_gdf.index
+
+        logging.info(f"Assigned globally unique segment_id to {len(split_polygons_gdf)} segments")
+
         # Save results
         split_polygons_gdf.to_file(output_path, driver="GPKG")
         logging.info(f"Split polygons saved to: {output_path}")
