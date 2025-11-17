@@ -35,99 +35,43 @@ def get_edge_points(polygon, precision=3):
     return edge_points
 
 
-def sort_segments_and_find_pairs(subset):
+def sort_segments_and_find_pairs(gdf):
     """
-    Sort segments by orientation, assign sides, find pairs, and assign pair_id.
-    ✅ PRESERVES the original plot_id from split_to_plots.
-    Returns a subset with side, pair_id, and segment_id fields.
+    Sort segments by orientation, assign sides, and find pairs based on shared edge points.
+    Returns a GeoDataFrame with a new "plot_id" field.
     """
-    orientation = determine_orientation(subset.geometry.iloc[0])
-    subset["centroid_x"] = subset.geometry.centroid.x
-    subset["centroid_y"] = subset.geometry.centroid.y
-    subset["edge_points"] = subset.geometry.apply(get_edge_points)
 
-    # If PartID is not present, use the index.
-    if "PartID" not in subset.columns:
-        subset = subset.reset_index().rename(columns={"index": "PartID"})
-    else:
-        subset = subset.sort_values("PartID")
-
-    subset["side"] = 1  # Default side 1.
-    half_rows = len(subset) // 2
-    subset.iloc[half_rows:, subset.columns.get_loc("side")] = 0  # Second half: side 0.
-
-    # ✅ FIX: Use pair_id for pairing, preserve original plot_id
-    # The plot_id from split_to_plots is already in the dataframe and should NOT be overwritten
-    subset["pair_id"] = -1  # Used for pairing left/right segments
-    subset["segment_id"] = -1  # Initialize segment_id
-
-    pair_id = 0
-    side_0 = subset[subset["side"] == 0]
-    side_1 = subset[subset["side"] == 1]
-
-    for idx_0, row_0 in side_0.iterrows():
-        if row_0.geometry.area < 7:
-            continue
-        for idx_1, row_1 in side_1.iterrows():
-            if row_1.geometry.area < 7:
+    def process_unique_id(subset):
+        orientation = determine_orientation(subset.geometry.iloc[0])
+        subset["centroid_x"] = subset.geometry.centroid.x
+        subset["centroid_y"] = subset.geometry.centroid.y
+        subset["edge_points"] = subset.geometry.apply(get_edge_points)
+        # If PartID is not present, use the index.
+        if "PartID" not in subset.columns:
+            subset = subset.reset_index().rename(columns={"index": "PartID"})
+        else:
+            subset = subset.sort_values("PartID")
+        subset["side"] = 1  # Default side 1.
+        half_rows = len(subset) // 2
+        subset.iloc[half_rows:, subset.columns.get_loc("side")] = 0  # Second half: side 0.
+        subset["plot_id"] = -1
+        segment_id = 0
+        side_0 = subset[subset["side"] == 0]
+        side_1 = subset[subset["side"] == 1]
+        for idx_0, row_0 in side_0.iterrows():
+            if row_0.geometry.area < 7:
                 continue
-            shared_points = row_0["edge_points"].intersection(row_1["edge_points"])
-            if len(shared_points) >= 2:  # Found a pair.
-                subset.at[idx_0, "pair_id"] = pair_id
-                subset.at[idx_1, "pair_id"] = pair_id
-                pair_id += 1
+            for idx_1, row_1 in side_1.iterrows():
+                if row_1.geometry.area < 7:
+                    continue
+                shared_points = row_0["edge_points"].intersection(row_1["edge_points"])
+                if len(shared_points) >= 2:  # Found a pair.
+                    subset.at[idx_0, "plot_id"] = segment_id
+                    subset.at[idx_1, "plot_id"] = segment_id
+                    segment_id += 1
+        return subset
 
-    return subset
-
-
-def assign_segment_ids(gdf):
-    """
-    Assign segment_id within each pair_id (NOT plot_id).
-    ✅ PRESERVES the original plot_id from split_to_plots.
-    For paired segments (pair_id >= 0), both sides get sequential segment_ids.
-    For unpaired segments (pair_id == -1), assign unique segment_ids.
-    """
-    # Process paired segments (pair_id >= 0)
-    paired_mask = gdf['pair_id'] >= 0
-    if paired_mask.any():
-        paired_gdf = gdf[paired_mask].copy()
-
-        # Sort by UniqueID, pair_id, side, and PartID for consistent ordering
-        sort_cols = ['UniqueID', 'pair_id', 'side', 'PartID']
-        paired_gdf = paired_gdf.sort_values(sort_cols)
-
-        # Assign segment_id within each pair_id group
-        def assign_within_pair(pair_group):
-            # Sort by PartID to ensure consistency
-            pair_group = pair_group.sort_values(['side', 'PartID'])
-
-            # For each pair, assign segment_id based on PartID order
-            unique_parts = pair_group['PartID'].unique()
-            part_to_segment = {part: i for i, part in enumerate(sorted(unique_parts))}
-
-            pair_group['segment_id'] = pair_group['PartID'].map(part_to_segment)
-            return pair_group
-
-        paired_gdf = paired_gdf.groupby(['UniqueID', 'pair_id'], group_keys=False).apply(assign_within_pair)
-
-        # Update the main dataframe
-        gdf.loc[paired_mask, 'segment_id'] = paired_gdf['segment_id']
-
-    # Process unpaired segments (pair_id == -1)
-    unpaired_mask = gdf['pair_id'] == -1
-    if unpaired_mask.any():
-        # For unpaired segments, assign unique segment_ids within each UniqueID
-        unpaired_gdf = gdf[unpaired_mask].copy()
-        unpaired_gdf = unpaired_gdf.sort_values(['UniqueID', 'PartID'])
-
-        def assign_unpaired_segments(unique_group):
-            unique_group['segment_id'] = range(len(unique_group))
-            return unique_group
-
-        unpaired_gdf = unpaired_gdf.groupby('UniqueID', group_keys=False).apply(assign_unpaired_segments)
-        gdf.loc[unpaired_mask, 'segment_id'] = unpaired_gdf['segment_id']
-
-    return gdf
+    return gdf.groupby("UniqueID", group_keys=False).apply(process_unique_id)
 
 
 def update_path_with_suffix(input_path: str, suffix: str) -> str:
@@ -181,28 +125,13 @@ def main(cfg: DictConfig):
     try:
         gdf = gpd.read_file(input_path)
         logging.info(f"Read {len(gdf)} segments from {input_path}")
-
-        # ✅ CHECK: Verify plot_id exists from previous step
-        if 'plot_id' in gdf.columns:
-            n_unique_input = gdf['plot_id'].nunique()
-            logging.info(f"✓ Input has {n_unique_input} unique plot_ids (will be preserved)")
-        else:
-            logging.warning("⚠ No plot_id column found in input! Creating from index...")
-            gdf['plot_id'] = gdf.index
-
     except Exception as e:
         logging.error(f"Failed to read input file: {e}")
         return
 
     # Process segments to sort and find pairs
-    logging.info("Processing segments for pairing...")
-    paired_gdf = gdf.groupby("UniqueID", group_keys=False).apply(sort_segments_and_find_pairs)
-    logging.info("Finished initial pairing.")
-
-    # Assign segment_id within each pair_id (NOT plot_id!)
-    logging.info("Assigning segment_id within pair groups...")
-    paired_gdf = assign_segment_ids(paired_gdf)
-    logging.info("Finished assigning segment_id.")
+    paired_gdf = sort_segments_and_find_pairs(gdf)
+    logging.info("Finished processing segments for pairing.")
 
     # Optionally filter small polygons using min_area from configuration
     min_area = cfg.split_to_side.get("min_area", 5)
@@ -212,41 +141,16 @@ def main(cfg: DictConfig):
     logging.info(f"Filtered {filtered_count} small segments (< {min_area} m²)")
     logging.info(f"After filtering, {len(paired_gdf)} segments remain.")
 
-    # ✅ VERIFY: Check that plot_id is still unique
-    if 'plot_id' in paired_gdf.columns:
-        n_features = len(paired_gdf)
-        n_unique_plot_ids = paired_gdf['plot_id'].nunique()
-        logging.info(f"✓ Output has {n_features} features with {n_unique_plot_ids} unique plot_ids")
-
-        # For segments with sides, we expect 2 features per plot_id (left + right)
-        ratio = n_features / n_unique_plot_ids if n_unique_plot_ids > 0 else 0
-        logging.info(f"  Ratio: {ratio:.1f} features per plot_id (expected ~2.0 for paired segments)")
-
-        # Sample
-        sample_ids = paired_gdf['plot_id'].head(5).tolist()
-        logging.info(f"  Sample plot_ids: {sample_ids}")
-
-    # Log statistics about sides and pairs
+    # Log statistics about sides and plots
     side_0_count = len(paired_gdf[paired_gdf['side'] == 0])
     side_1_count = len(paired_gdf[paired_gdf['side'] == 1])
-    paired_count = len(paired_gdf[paired_gdf['pair_id'] >= 0])
-    unpaired_count = len(paired_gdf[paired_gdf['pair_id'] == -1])
+    paired_count = len(paired_gdf[paired_gdf['plot_id'] >= 0])
+    unpaired_count = len(paired_gdf[paired_gdf['plot_id'] == -1])
 
     logging.info(f"Side 0: {side_0_count} segments")
     logging.info(f"Side 1: {side_1_count} segments")
     logging.info(f"Paired segments: {paired_count}")
     logging.info(f"Unpaired segments: {unpaired_count}")
-
-    # Log segment_id statistics
-    if 'segment_id' in paired_gdf.columns:
-        valid_segment_ids = paired_gdf[paired_gdf['segment_id'] >= 0]
-        logging.info(f"Segments with valid segment_id: {len(valid_segment_ids)}")
-
-        # Show segment_id distribution per pair
-        if len(valid_segment_ids) > 0 and 'pair_id' in valid_segment_ids.columns:
-            segments_per_pair = valid_segment_ids.groupby('pair_id')['segment_id'].max() + 1
-            logging.info(
-                f"Segments per pair - Mean: {segments_per_pair.mean():.1f}, Median: {segments_per_pair.median():.0f}, Max: {segments_per_pair.max()}")
 
     # Save the paired segments GeoDataFrame
     paired_gdf.to_file(output_path, driver="GPKG")
