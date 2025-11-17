@@ -120,7 +120,6 @@ def split_geometry(geometry, splitter):
 def process_polygon_worker(args):
     """
     Worker function for multiprocessing. Unpacks arguments and processes a single polygon.
-    Creates globally unique plot_id by combining UniqueID and PartID.
     """
     (idx, footprint_row_dict, geometry_wkt, centerlines_by_id, smooth_centerlines_by_id,
      spacing, extension_distance, width_column, crs) = args
@@ -176,20 +175,13 @@ def process_polygon_worker(args):
                 temp_segments.extend(split_geometry(segment, perp))
             segments = temp_segments
 
-        # Return results with globally unique plot_id
+        # Return results
         results = []
         for part_id, segment in enumerate(segments):
             result = footprint_row_dict.copy()
             result['geometry'] = segment.wkt  # Store as WKT for serialization
             result['PartID'] = part_id
             result['original_idx'] = idx
-
-            # ✅ CREATE GLOBALLY UNIQUE PLOT_ID
-            # Combines UniqueID (e.g., "EW-12") with PartID (e.g., 0, 1, 2...)
-            # Result: "EW-12_0", "EW-12_1", "EW-12_2", etc.
-            # This ensures plot_id is unique across entire dataset, not just within UniqueID
-            result['plot_id'] = f"{unique_id}_{part_id}"
-
             results.append(result)
 
         return results
@@ -260,22 +252,11 @@ def process_polygons_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
         if 'original_idx' in split_polygons_gdf.columns:
             split_polygons_gdf = split_polygons_gdf.drop(columns=['original_idx'])
 
-        # ✅ LOG PLOT_ID STATISTICS
-        if 'plot_id' in split_polygons_gdf.columns:
-            n_segments = len(split_polygons_gdf)
-            n_unique_plot_ids = split_polygons_gdf['plot_id'].nunique()
-            logging.info(f"Created {n_segments} segments with {n_unique_plot_ids} unique plot_ids")
+        # Add globally unique segment_id
+        split_polygons_gdf = split_polygons_gdf.reset_index(drop=True)
+        split_polygons_gdf['segment_id'] = split_polygons_gdf.index
 
-            # Verify uniqueness
-            if n_segments == n_unique_plot_ids:
-                logging.info("✓ plot_id is globally unique (1 segment per plot_id)")
-            else:
-                logging.warning(
-                    f"⚠ plot_id has duplicates! Ratio: {n_segments / n_unique_plot_ids:.1f} segments per plot_id")
-
-            # Show sample plot_ids
-            sample_ids = split_polygons_gdf['plot_id'].head(5).tolist()
-            logging.info(f"Sample plot_ids: {sample_ids}")
+        logging.info(f"Assigned globally unique segment_id to {len(split_polygons_gdf)} segments")
 
         # Save results
         split_polygons_gdf.to_file(output_path, driver="GPKG")

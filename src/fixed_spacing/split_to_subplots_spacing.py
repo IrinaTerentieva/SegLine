@@ -118,7 +118,9 @@ def split_geometry(geometry, splitter):
 
 def process_subplot_worker(args):
     """
-    Worker function for multiprocessing. Unpacks arguments and processes a single polygon.
+    Worker function for multiprocessing.
+    Processes one plot polygon and splits it into subplots.
+    plot_id will be reassigned to globally unique integer after all processing.
     """
     (idx, footprint_row_dict, geometry_wkt, centerlines_by_id, smooth_centerlines_by_id,
      spacing, extension_distance, width_column, crs) = args
@@ -129,6 +131,10 @@ def process_subplot_worker(args):
         polygon = wkt.loads(geometry_wkt)
 
         unique_id = footprint_row_dict["UniqueID"]
+
+        # Keep the original plot_id for temporary tracking
+        # This will be replaced with globally unique integer after all processing
+        original_plot_id = footprint_row_dict.get("plot_id", idx)
 
         # Get width column name from config (passed as parameter)
         avg_width = footprint_row_dict.get(width_column, 0)
@@ -168,7 +174,7 @@ def process_subplot_worker(args):
             perpendiculars = generate_perpendiculars(extended_centerline, spacing,
                                                      max_splitter_length=max_width)
 
-        # Split polygon
+        # Split polygon into subplots
         segments = split_geometry(polygon, extended_centerline)
         for perp in perpendiculars:
             temp_segments = []
@@ -176,13 +182,22 @@ def process_subplot_worker(args):
                 temp_segments.extend(split_geometry(segment, perp))
             segments = temp_segments
 
-        # Return results
+        # Create results
+        # Store original grouping info - plot_id will be reassigned to be globally unique
         results = []
-        for part_id, segment in enumerate(segments):
+        for subplot_idx, segment in enumerate(segments):
             if segment.area > 0:  # Only include valid segments
                 result = footprint_row_dict.copy()
                 result['geometry'] = segment.wkt  # Store as WKT for serialization
-                result['PartID'] = part_id
+
+                # Keep temporary grouping identifier for processing
+                # Format: "UniqueID_original_plot_id" for sorting/grouping
+                result['temp_group_id'] = f"{unique_id}_{original_plot_id}"
+                result['original_plot_id'] = original_plot_id
+
+                # Subplot number within this plot
+                result['SubplotPartID'] = subplot_idx
+
                 result['original_idx'] = idx
                 results.append(result)
 
@@ -197,6 +212,7 @@ def process_subplots_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
                                         spacing, output_path, extension_distance, width_column, max_workers=None):
     """
     Optimized parallel processing using multiprocessing.Pool.
+    ✅ Assigns globally unique INTEGER plot_id and subplot_id after processing.
     """
     if max_workers is None:
         max_workers = min(cpu_count(), 8)
@@ -219,6 +235,23 @@ def process_subplots_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
     logging.info(f"Loaded {len(centerlines_by_id)} regular centerlines")
     logging.info(f"Loaded {len(smooth_centerlines_by_id)} smooth centerlines")
 
+    # Check input
+    if 'plot_id' in footprint_gdf.columns:
+        n_plots = len(footprint_gdf)
+        n_unique_plot_ids = footprint_gdf['plot_id'].nunique()
+        n_unique_ids = footprint_gdf['UniqueID'].nunique()
+
+        logging.info(f"Input has {n_plots} plots from {n_unique_ids} UniqueIDs")
+        logging.info(
+            f"  - plot_id values range from {footprint_gdf['plot_id'].min()} to {footprint_gdf['plot_id'].max()}")
+        logging.info(f"  - {n_unique_plot_ids} unique plot_id values (may have duplicates across UniqueIDs)")
+
+        # Check for duplicates
+        if n_plots != n_unique_plot_ids:
+            logging.info(f"  → plot_id is NOT globally unique - will create globally unique integers")
+        else:
+            logging.info(f"  → plot_id appears to be globally unique already")
+
     # Prepare arguments for workers
     worker_args = []
     for idx, row in footprint_gdf.iterrows():
@@ -232,7 +265,7 @@ def process_subplots_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
                     spacing, extension_distance, width_column, footprint_gdf.crs)
             worker_args.append(args)
 
-    logging.info(f"Processing {len(worker_args)} polygons...")
+    logging.info(f"Processing {len(worker_args)} plots into subplots...")
 
     # Process in parallel
     results = []
@@ -246,7 +279,7 @@ def process_subplots_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
                 results.extend(result_batch)
                 successful_count += 1
 
-    logging.info(f"Successfully processed {successful_count}/{len(worker_args)} polygons")
+    logging.info(f"Successfully processed {successful_count}/{len(worker_args)} plots")
 
     # Convert results back to GeoDataFrame
     if results:
@@ -258,39 +291,95 @@ def process_subplots_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
 
         split_polygons_gdf = gpd.GeoDataFrame(results, crs=footprint_gdf.crs)
 
+        # ✅ ASSIGN GLOBALLY UNIQUE INTEGER plot_id
+        # Sort by UniqueID and temp_group_id to maintain consistent ordering
+        split_polygons_gdf = split_polygons_gdf.sort_values(['UniqueID', 'temp_group_id', 'SubplotPartID']).reset_index(
+            drop=True)
+
+        # Create mapping from temp_group_id to globally unique plot_id
+        unique_groups = split_polygons_gdf['temp_group_id'].unique()
+        group_to_plot_id = {group: i for i, group in enumerate(unique_groups)}
+
+        # Assign globally unique plot_id (integer)
+        split_polygons_gdf['plot_id'] = split_polygons_gdf['temp_group_id'].map(group_to_plot_id)
+
+        # ✅ ASSIGN GLOBALLY UNIQUE INTEGER subplot_id
+        # Simply use the index after sorting
+        split_polygons_gdf['subplot_id'] = split_polygons_gdf.index
+
         # Calculate areas and lengths
         split_polygons_gdf['area'] = split_polygons_gdf.geometry.area
         split_polygons_gdf['length'] = split_polygons_gdf.geometry.length
-        split_polygons_gdf['perimeter'] = split_polygons_gdf.geometry.length  # Same as length for polygons
+        split_polygons_gdf['perimeter'] = split_polygons_gdf.geometry.length
 
         # Drop temporary columns
-        if 'original_idx' in split_polygons_gdf.columns:
-            split_polygons_gdf = split_polygons_gdf.drop(columns=['original_idx'])
+        temp_cols = ['original_idx', 'temp_group_id', 'original_plot_id']
+        split_polygons_gdf = split_polygons_gdf.drop(
+            columns=[col for col in temp_cols if col in split_polygons_gdf.columns])
 
-        # Sort for consistent ordering and assign globally unique subplot_id
-        # Check if plot_id exists (it should from split_to_side)
-        if 'plot_id' in split_polygons_gdf.columns:
-            # Sort by UniqueID, plot_id, side, and PartID for consistent ordering
-            sort_cols = ['UniqueID', 'plot_id']
-            if 'side' in split_polygons_gdf.columns:
-                sort_cols.append('side')
-            sort_cols.append('PartID')
-            split_polygons_gdf = split_polygons_gdf.sort_values(sort_cols).reset_index(drop=True)
+        # ✅ VERIFICATION
+        n_subplots = len(split_polygons_gdf)
+        n_unique_plot_ids = split_polygons_gdf['plot_id'].nunique()
+        n_unique_subplot_ids = split_polygons_gdf['subplot_id'].nunique()
+        n_unique_ids = split_polygons_gdf['UniqueID'].nunique()
 
-            logging.info(f"Processing subplots across {split_polygons_gdf['plot_id'].nunique()} plot groups")
+        logging.info("")
+        logging.info("=" * 70)
+        logging.info("VERIFICATION RESULTS:")
+        logging.info("=" * 70)
+        logging.info(f"Total subplots created: {n_subplots}")
+        logging.info(f"From {n_unique_ids} UniqueIDs")
+        logging.info(
+            f"Across {n_unique_plot_ids} unique plot_ids (integers: {split_polygons_gdf['plot_id'].min()} to {split_polygons_gdf['plot_id'].max()})")
+        logging.info(
+            f"With {n_unique_subplot_ids} unique subplot_ids (integers: {split_polygons_gdf['subplot_id'].min()} to {split_polygons_gdf['subplot_id'].max()})")
+        logging.info("")
+
+        # Verify uniqueness
+        if n_unique_plot_ids == len(unique_groups):
+            logging.info(f"✓ plot_id is GLOBALLY UNIQUE (no duplicates across all UniqueIDs)")
         else:
-            # Fallback if plot_id doesn't exist
-            logging.warning("plot_id column not found")
-            split_polygons_gdf = split_polygons_gdf.reset_index(drop=True)
+            logging.warning(f"⚠ plot_id issue detected")
 
-        # Assign globally unique subplot_id (like FID)
-        split_polygons_gdf['subplot_id'] = split_polygons_gdf.index
-        logging.info(f"Assigned globally unique subplot_id to {len(split_polygons_gdf)} subplots")
+        if n_subplots == n_unique_subplot_ids:
+            logging.info(f"✓ subplot_id is GLOBALLY UNIQUE (no duplicates)")
+        else:
+            logging.warning(f"⚠ subplot_id has duplicates")
+
+        # Show sample data
+        sample_data = split_polygons_gdf[['UniqueID', 'plot_id', 'subplot_id', 'SubplotPartID']].head(10)
+        logging.info("")
+        logging.info("Sample data (first 10 rows):")
+        logging.info(sample_data.to_string())
+
+        # Distribution statistics
+        plots_per_unique_id = split_polygons_gdf.groupby('UniqueID')['plot_id'].nunique()
+        subplots_per_plot = split_polygons_gdf.groupby('plot_id').size()
+
+        logging.info("")
+        logging.info(f"Plots per UniqueID - Min: {plots_per_unique_id.min()}, "
+                     f"Mean: {plots_per_unique_id.mean():.1f}, "
+                     f"Median: {plots_per_unique_id.median():.0f}, "
+                     f"Max: {plots_per_unique_id.max()}")
+        logging.info(f"Subplots per plot - Min: {subplots_per_plot.min()}, "
+                     f"Mean: {subplots_per_plot.mean():.1f}, "
+                     f"Median: {subplots_per_plot.median():.0f}, "
+                     f"Max: {subplots_per_plot.max()}")
+
+        # Show example of one UniqueID
+        example_uid = split_polygons_gdf['UniqueID'].iloc[0]
+        example_data = split_polygons_gdf[split_polygons_gdf['UniqueID'] == example_uid]
+        example_plot_ids = sorted(example_data['plot_id'].unique())
+        logging.info("")
+        logging.info(
+            f"Example: UniqueID '{example_uid}' has {len(example_plot_ids)} plots with plot_ids: {example_plot_ids[:10]}{' ...' if len(example_plot_ids) > 10 else ''}")
+
+        logging.info("=" * 70)
+        logging.info("")
 
         # Save results
         split_polygons_gdf.to_file(output_path, driver="GPKG")
         logging.info(f"Split polygons saved to: {output_path}")
-        logging.info(f"Created {len(split_polygons_gdf)} subplots from {len(footprint_gdf)} polygons")
 
         # Log statistics
         avg_area = split_polygons_gdf['area'].mean()
@@ -302,15 +391,6 @@ def process_subplots_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
         logging.info(f"Average perimeter: {avg_length:.2f} m")
         logging.info(f"Median perimeter: {median_length:.2f} m")
 
-        # Log subplot distribution by plot_id
-        if 'plot_id' in split_polygons_gdf.columns:
-            subplots_per_plot = split_polygons_gdf.groupby('plot_id').size()
-            logging.info(
-                f"Subplots per plot - Mean: {subplots_per_plot.mean():.1f}, Median: {subplots_per_plot.median():.0f}, Max: {subplots_per_plot.max()}")
-            logging.info(f"Total unique plot_id values: {split_polygons_gdf['plot_id'].nunique()}")
-
-        logging.info(
-            f"Subplot ID range: {split_polygons_gdf['subplot_id'].min()} to {split_polygons_gdf['subplot_id'].max()}")
     else:
         logging.warning("No results generated from subplot splitting")
 
