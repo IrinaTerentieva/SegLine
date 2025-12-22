@@ -25,7 +25,7 @@ def main(cfg: DictConfig):
     # So from a utils script, the config directory is: ../config
     config_dir = "src/config"  # relative path from the utils directory
 
-    if cfg.smoothening.get("perform_smoothing", True):
+    if cfg.smoothening.get("perform_smoothing", False):
         steps = [
             "src/fixed_spacing/assign_ID.py",
             "src/fixed_spacing/smooth_centerline.py",
