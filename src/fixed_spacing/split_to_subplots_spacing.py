@@ -138,11 +138,22 @@ def process_subplot_worker(args):
 
         # Get width column name from config (passed as parameter)
         avg_width = footprint_row_dict.get(width_column, 0)
+        if avg_width is None:
+            avg_width = 0
 
         max_width = avg_width + 10
 
         if max_width <= 5:
             max_width = 15
+
+        # Auto-estimate width from geometry if needed
+        centerline_wkt_temp = centerlines_by_id.get(unique_id)
+        if centerline_wkt_temp:
+            centerline_temp = wkt.loads(centerline_wkt_temp)
+            if centerline_temp.length > 0:
+                estimated_width = polygon.area / centerline_temp.length
+                if estimated_width > max_width:
+                    max_width = estimated_width + 10  # Add buffer
 
         # Get centerlines from dictionaries
         centerline_wkt = centerlines_by_id.get(unique_id)
@@ -176,10 +187,19 @@ def process_subplot_worker(args):
 
         # Split polygon into subplots
         segments = split_geometry(polygon, extended_centerline)
+        if not segments:
+            # If centerline split fails, use original polygon
+            segments = [polygon]
+
         for perp in perpendiculars:
             temp_segments = []
             for segment in segments:
-                temp_segments.extend(split_geometry(segment, perp))
+                split_result = split_geometry(segment, perp)
+                if split_result:
+                    temp_segments.extend(split_result)
+                else:
+                    # If split fails, keep the original segment
+                    temp_segments.append(segment)
             segments = temp_segments
 
         # Create results
@@ -347,6 +367,8 @@ def process_subplots_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
             logging.warning(f"⚠ subplot_id has duplicates")
 
         # Show sample data
+        # XkXepP
+        # split_polygons_gdf = split_polygons_gdf[split_polygons_gdf['UniqueID'] == 'XkXepP']
         sample_data = split_polygons_gdf[['UniqueID', 'plot_id', 'subplot_id', 'SubplotPartID']].head(10)
         logging.info("")
         logging.info("Sample data (first 10 rows):")
@@ -481,6 +503,8 @@ def main(cfg: DictConfig):
     num_workers = cfg.split_to_subplots.get("num_workers", None)
     subplot_spacing = float(cfg.split_to_subplots.perpendicular_spacing)
     extension_distance = cfg.split_to_plots.extension_distance
+    print('Extension distance: ', extension_distance)
+
     max_splitter_length = cfg.split_to_subplots.max_splitter_length_buffer
 
     # Output path - build from the _sides.gpkg input path

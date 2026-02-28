@@ -133,11 +133,24 @@ def process_polygon_worker(args):
 
         # Get width column name from config (passed as parameter)
         avg_width = footprint_row_dict.get(width_column, 0)
+        if avg_width is None:
+            avg_width = 0
 
         max_width = avg_width + 10
 
         if max_width <= 5:
             max_width = 15
+
+        # DEBUG: For wide polygons, use the actual geometry width
+        # Estimate width from area/length
+        centerline_wkt_temp = centerlines_by_id.get(unique_id)
+        if centerline_wkt_temp:
+            centerline_temp = wkt.loads(centerline_wkt_temp)
+            if centerline_temp.length > 0:
+                estimated_width = polygon.area / centerline_temp.length
+                if estimated_width > max_width:
+                    logging.debug(f"UniqueID {unique_id}: estimated_width={estimated_width:.1f} > max_width={max_width}, adjusting")
+                    max_width = estimated_width + 10  # Add buffer
 
         # Get centerlines from dictionaries
         centerline_wkt = centerlines_by_id.get(unique_id)
@@ -167,12 +180,22 @@ def process_polygon_worker(args):
             perpendiculars = generate_perpendiculars(extended_centerline, spacing,
                                                      max_splitter_length=max_width)
 
-        # Split polygon
+        # Split polygon by centerline first
         segments = split_geometry(polygon, extended_centerline)
+        if not segments:
+            # If centerline split fails, use original polygon
+            segments = [polygon]
+
+        # Split by perpendiculars
         for perp in perpendiculars:
             temp_segments = []
             for segment in segments:
-                temp_segments.extend(split_geometry(segment, perp))
+                split_result = split_geometry(segment, perp)
+                if split_result:
+                    temp_segments.extend(split_result)
+                else:
+                    # If split fails, keep the original segment
+                    temp_segments.append(segment)
             segments = temp_segments
 
         # Return results

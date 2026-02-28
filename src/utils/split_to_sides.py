@@ -99,7 +99,7 @@ def main(cfg: DictConfig):
     logging.info("Configuration:\n" + OmegaConf.to_yaml(cfg))
 
     # Get splitting method
-    splitting_method = cfg.params.splitting_method
+    splitting_method = cfg.split_to_side.splitting_method
 
     # Use the UniqueID output from the previous split_to_plots step.
     # Output directory will be the same as the input file directory.
