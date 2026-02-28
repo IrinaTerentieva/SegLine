@@ -185,11 +185,9 @@ def process_subplot_worker(args):
             perpendiculars = generate_perpendiculars(extended_centerline, spacing,
                                                      max_splitter_length=max_width)
 
-        # Split polygon into subplots
-        segments = split_geometry(polygon, extended_centerline)
-        if not segments:
-            # If centerline split fails, use original polygon
-            segments = [polygon]
+        # Input polygons are already split into sides by split_to_sides,
+        # so skip centerline splitting and only split by perpendiculars.
+        segments = [polygon]
 
         for perp in perpendiculars:
             temp_segments = []
