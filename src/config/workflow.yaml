@@ -23,27 +23,27 @@
 #  min_length: 20
 #  width_column: "width_neg1"  # Column name for width values in your data
 
-###### ROADS
-dataset:
-  ground_footprint: "/media/irina/My Book1/CPFN_Bohn_2025/Data/Products/FLM/FULL_seismiclines_manual_fixFP.gpkg"
-  ground_footprint_layer: null      # null if NO layer
-  centerline: "/media/irina/My Book1/CPFN_Bohn_2025/Data/Products/FLM/FULL_seismiclines_manual.gpkg"
-  centerline_layer: null            # null if NO layer
-  debug: false
-  unique_id_length: 6
-  min_length: 20
-  width_column: "avg_width_neg1"  # Column name for width values in your data
-
 ####### ROADS
 #dataset:
-#  ground_footprint: "/media/irina/My Book/Petronas/DATA/vector_data/Final_v.0.88/Roads/PECL_roads_v0.88_FLAIM_fixFP.gpkg"
+#  ground_footprint: "/media/irina/My Book1/CPFN_Bohn_2025/Data/Products/FLM/FULL_seismiclines_manual_v2_fixFP.gpkg"
 #  ground_footprint_layer: null      # null if NO layer
-#  centerline: "/media/irina/My Book/Petronas/DATA/vector_data/Final_v.0.88/Roads/PECL_roads_v0.88_FLAIM.gpkg"
+#  centerline: "/media/irina/My Book1/CPFN_Bohn_2025/Data/Products/FLM/FULL_seismiclines_manual_v2.gpkg"
 #  centerline_layer: null            # null if NO layer
 #  debug: false
-#  unique_id_length: 3
+#  unique_id_length: 6
 #  min_length: 20
-#  width_column: "avg_width"  # Column name for width values in your data
+#  width_column: "buffer_width"  # Column name for width values in your data
+
+###### ROADS
+dataset:
+  ground_footprint: "/media/irina/My Book1/LiDea_BigExperiment/vector/FLM/Footprint/centerlines_clipped_by_sketchmapping_est_width_buffer_narrow.gpkg"
+  ground_footprint_layer: null      # null if NO layer
+  centerline: "/media/irina/My Book1/LiDea_BigExperiment/vector/FLM/Footprint/centerlines_clipped_by_sketchmapping_est_width.gpkg"
+  centerline_layer: null            # null if NO layer
+  debug: false
+  unique_id_length: 3
+  min_length: 20
+  width_column: "adjusted_width"  # Column name for width values in your data
 
 smoothening:
   use_assign_id_output: true
@@ -55,18 +55,20 @@ smoothening:
   num_workers: 4
 
 split_to_plots:
-  segment_area: 100
+  segment_area: 50
   num_workers: 24
-  extension_distance: 50
+  extension_distance: 100
   max_splitter_length_buffer: 50
   perpendicular_spacing: 50  # Fixed spacing in meters between perpendiculars
 
 split_to_side:
-  segment_area: 100
+  splitting_method: "area"   # "area" or "length"
+  segment_area: 50
+  segment_length: 100
   min_area: 5
 
 split_to_subplots:
-  segment_area: 20         # Should be 1/5 of plot area!!!
+  segment_area: 10         # Should be 1/5 of plot area!!!
   num_workers: 24
   max_splitter_length_buffer: 50
   use_smooth_centerline: true
