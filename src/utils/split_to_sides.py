@@ -109,7 +109,7 @@ def main(cfg: DictConfig):
     # Build the input file path for segments.
     # Assume the split_to_plots step produced a file with name ending in
     # "_ID_segments{segment_area}m2.gpkg" and with prefix "11_"
-    segment_area = int(cfg.split_to_side.segment_area)
+    segment_area = int(cfg.split_to_side.plot_area)
     segment_length = int(cfg.split_to_side.segment_length)
 
     if splitting_method == "length":
@@ -142,10 +142,8 @@ def main(cfg: DictConfig):
     paired_gdf = sort_segments_and_find_pairs(gdf)
     logging.info("Finished processing segments for pairing.")
 
-    # Optionally filter small polygons using min_area from configuration.
-    min_area = cfg.split_to_side.get("min_area", 5)
-    paired_gdf = paired_gdf[paired_gdf.geometry.area >= min_area]
-    logging.info(f"After filtering, {len(paired_gdf)} segments remain.")
+    # Pass all polygons through — small ones will be merged in split_to_subplots
+    logging.info(f"Total segments: {len(paired_gdf)}")
 
     # Save the paired segments GeoDataFrame
     paired_gdf.to_file(output_path, driver="GPKG")
