@@ -410,7 +410,7 @@ def main(cfg: DictConfig):
 
     # Configuration parameters
     num_workers = cfg.split_to_subplots.get("num_workers", None)
-    segment_area = int(cfg.split_to_subplots.segment_area)
+    segment_area = int(cfg.split_to_subplots.subplot_area)
     extension_distance = cfg.split_to_subplots.extension_distance
 
     # Output path

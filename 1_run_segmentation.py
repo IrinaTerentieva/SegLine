@@ -28,6 +28,7 @@ def main(cfg: DictConfig):
     if cfg.smoothening.get("perform_smoothing", True):
         steps = [
             "src/utils/assign_id.py",
+            "src/utils/clean_centerlines.py",
             "src/utils/smooth_centerline.py",
             "src/utils/split_to_plots.py",
             "src/utils/split_to_sides.py",
@@ -36,6 +37,7 @@ def main(cfg: DictConfig):
     else:
         steps = [
             "src/utils/assign_id.py",
+            "src/utils/clean_centerlines.py",
             "src/utils/split_to_plots.py",
             "src/utils/split_to_sides.py",
             "src/utils/split_to_subplots.py"

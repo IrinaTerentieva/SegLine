@@ -1,6 +1,7 @@
 import os
 import math
 import logging
+import pandas as pd
 import geopandas as gpd
 from shapely.geometry import LineString, MultiLineString, Polygon, GeometryCollection, Point
 from shapely.ops import split, linemerge, substring, unary_union
@@ -116,6 +117,42 @@ def split_geometry(geometry, splitter):
         return []
 
 
+def merge_small_segments(segments, min_area):
+    """
+    Merge segments whose area < min_area into the adjacent neighbor
+    sharing the longest boundary. The neighbor's geometry grows to
+    include the small segment.
+    """
+    if len(segments) <= 1:
+        return segments
+
+    # Iteratively merge the smallest undersized segment until none remain
+    changed = True
+    while changed and len(segments) > 1:
+        changed = False
+        for i, seg in enumerate(segments):
+            if seg.area >= min_area:
+                continue
+            # Find the adjacent neighbor with the longest shared boundary
+            best_j = None
+            best_shared = 0.0
+            for j, other in enumerate(segments):
+                if i == j:
+                    continue
+                shared = seg.boundary.intersection(other.boundary)
+                if not shared.is_empty and shared.length > best_shared:
+                    best_shared = shared.length
+                    best_j = j
+            if best_j is not None:
+                # Union the small segment into its neighbor
+                segments[best_j] = unary_union([segments[best_j], segments[i]])
+                segments.pop(i)
+                changed = True
+                break  # restart after modification
+
+    return segments
+
+
 def process_subplot_worker(args):
     """
     Worker function for multiprocessing.
@@ -123,7 +160,7 @@ def process_subplot_worker(args):
     plot_id will be reassigned to globally unique integer after all processing.
     """
     (idx, footprint_row_dict, geometry_wkt, centerlines_by_id, smooth_centerlines_by_id,
-     spacing, extension_distance, width_column, crs) = args
+     spacing, extension_distance, width_column, target_area, crs) = args
 
     try:
         # Reconstruct geometry from WKT
@@ -227,7 +264,8 @@ def process_subplot_worker(args):
 
 
 def process_subplots_parallel_optimized(footprint_gdf, centerline_gdf, smooth_centerline_gdf,
-                                        spacing, output_path, extension_distance, width_column, max_workers=None):
+                                        spacing, output_path, extension_distance, width_column,
+                                        target_area, plot_area, min_area, max_workers=None):
     """
     Optimized parallel processing using multiprocessing.Pool.
     ✅ Assigns globally unique INTEGER plot_id and subplot_id after processing.
@@ -280,7 +318,7 @@ def process_subplots_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
             geometry_wkt = row.geometry.wkt
 
             args = (idx, row_dict, geometry_wkt, centerlines_by_id, smooth_centerlines_by_id,
-                    spacing, extension_distance, width_column, footprint_gdf.crs)
+                    spacing, extension_distance, width_column, target_area, footprint_gdf.crs)
             worker_args.append(args)
 
     logging.info(f"Processing {len(worker_args)} plots into subplots...")
@@ -326,9 +364,102 @@ def process_subplots_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
         split_polygons_gdf['subplot_id'] = split_polygons_gdf.index
 
         # Calculate areas and lengths
-        split_polygons_gdf['area'] = split_polygons_gdf.geometry.area
-        split_polygons_gdf['length'] = split_polygons_gdf.geometry.length
-        split_polygons_gdf['perimeter'] = split_polygons_gdf.geometry.length
+        split_polygons_gdf['area'] = split_polygons_gdf.geometry.area.round(1)
+        split_polygons_gdf['length'] = split_polygons_gdf.geometry.length.round(1)
+        split_polygons_gdf['perimeter'] = split_polygons_gdf.geometry.length.round(1)
+        split_polygons_gdf['subplot_area'] = target_area
+        split_polygons_gdf['plot_area'] = plot_area
+
+        # ✅ MERGE small subplots into adjacent neighbor on the same side
+        n_before = len(split_polygons_gdf)
+        side_col = 'side' if 'side' in split_polygons_gdf.columns else None
+        group_cols = ['UniqueID', side_col] if side_col else ['UniqueID']
+        group_cols = [c for c in group_cols if c is not None]
+
+        merged_groups = []
+        for group_key, group in split_polygons_gdf.groupby(group_cols):
+            group = group.copy().reset_index(drop=True)
+            changed = True
+            while changed and len(group) > 1:
+                changed = False
+                for i in range(len(group)):
+                    if group.at[i, 'area'] >= min_area:
+                        continue
+                    small_geom = group.at[i, 'geometry']
+                    best_j = None
+                    best_shared = 0.0
+                    for j in range(len(group)):
+                        if i == j:
+                            continue
+                        other_geom = group.at[j, 'geometry']
+                        # Use buffered touch test to handle floating point precision
+                        if not small_geom.buffer(0.01).intersects(other_geom):
+                            continue
+                        shared = small_geom.boundary.intersection(other_geom.boundary)
+                        shared_len = shared.length if not shared.is_empty else 0
+                        # Also check distance — if geometries nearly touch, they're neighbors
+                        if shared_len == 0 and small_geom.distance(other_geom) < 0.1:
+                            shared_len = 0.01  # Treat as adjacent
+                        if shared_len > best_shared:
+                            best_shared = shared_len
+                            best_j = j
+                    if best_j is not None:
+                        group.at[best_j, 'geometry'] = unary_union(
+                            [group.at[best_j, 'geometry'], small_geom])
+                        group.at[best_j, 'area'] = round(group.at[best_j, 'geometry'].area, 1)
+                        group = group.drop(i).reset_index(drop=True)
+                        changed = True
+                        logging.debug(f"Merged small subplot (area={small_geom.area:.1f}) in group {group_key}")
+                        break
+            merged_groups.append(group)
+
+        split_polygons_gdf = gpd.GeoDataFrame(
+            pd.concat(merged_groups, ignore_index=True), crs=footprint_gdf.crs)
+        n_merged = n_before - len(split_polygons_gdf)
+        if n_merged > 0:
+            logging.info(f"Merged {n_merged} small subplots (area < {min_area:.1f} m²) into adjacent neighbors")
+
+        # Debug: show remaining small subplots that were NOT merged
+        still_small = split_polygons_gdf[split_polygons_gdf.geometry.area < min_area]
+        if len(still_small) > 0:
+            logging.warning(f"⚠ {len(still_small)} subplots still below min_area ({min_area:.1f} m²) after merge:")
+            for idx, row in still_small.iterrows():
+                geom = row.geometry
+                uid = row.get('UniqueID', '?')
+                side = row.get('side', '?')
+                pid = row.get('plot_id', '?')
+                # Check why it wasn't merged: find nearest neighbor on same side
+                same_group = split_polygons_gdf[
+                    (split_polygons_gdf['UniqueID'] == uid) &
+                    (split_polygons_gdf.get('side', pd.Series()) == side if 'side' in split_polygons_gdf.columns else True)
+                ]
+                same_group = same_group[same_group.index != idx]
+                if len(same_group) == 0:
+                    logging.warning(f"  fid={idx} | UniqueID={uid} side={side} plot_id={pid} "
+                                    f"area={geom.area:.2f} | NO neighbors on same side")
+                else:
+                    distances = same_group.geometry.apply(lambda g: geom.distance(g))
+                    nearest_idx = distances.idxmin()
+                    nearest_dist = distances.min()
+                    nearest_geom = same_group.at[nearest_idx, 'geometry']
+                    shared = geom.boundary.intersection(nearest_geom.boundary)
+                    shared_len = shared.length if not shared.is_empty else 0
+                    touches = geom.touches(nearest_geom)
+                    intersects = geom.intersects(nearest_geom)
+                    buffered_intersects = geom.buffer(0.01).intersects(nearest_geom)
+                    logging.warning(f"  fid={idx} | UniqueID={uid} side={side} plot_id={pid} "
+                                    f"area={geom.area:.2f} | nearest_dist={nearest_dist:.4f} "
+                                    f"shared_len={shared_len:.4f} touches={touches} "
+                                    f"intersects={intersects} buffered={buffered_intersects}")
+
+        # Recalculate after merging
+        split_polygons_gdf['area'] = split_polygons_gdf.geometry.area.round(1)
+        split_polygons_gdf['length'] = split_polygons_gdf.geometry.length.round(1)
+        split_polygons_gdf['perimeter'] = split_polygons_gdf.geometry.length.round(1)
+
+        # Reassign subplot_id after merging
+        split_polygons_gdf = split_polygons_gdf.reset_index(drop=True)
+        split_polygons_gdf['subplot_id'] = split_polygons_gdf.index
 
         # Drop temporary columns
         temp_cols = ['original_idx', 'temp_group_id', 'original_plot_id']
@@ -500,6 +631,10 @@ def main(cfg: DictConfig):
     # Configuration parameters
     num_workers = cfg.split_to_subplots.get("num_workers", None)
     subplot_spacing = float(cfg.split_to_subplots.perpendicular_spacing)
+    target_area = float(cfg.split_to_subplots.subplot_area)
+    plot_area = float(cfg.split_to_plots.plot_area)
+    min_area_fraction = float(cfg.split_to_subplots.min_area_fraction)
+    min_area = min_area_fraction * plot_area
     extension_distance = cfg.split_to_plots.extension_distance
     print('Extension distance: ', extension_distance)
 
@@ -515,6 +650,7 @@ def main(cfg: DictConfig):
     logging.info(f"Smooth centerline path: {smooth_centerline_path}")
     logging.info(f"Output path: {output_path}")
     logging.info(f"Parameters: perpendicular_spacing={subplot_spacing}m, extension={extension_distance}m")
+    logging.info(f"Merge threshold: subplots < {min_area:.1f} m² (min_area_fraction={min_area_fraction} * plot_area={plot_area}) will be merged")
 
     # Check if input file exists
     if not os.path.exists(footprint_path):
@@ -546,6 +682,9 @@ def main(cfg: DictConfig):
         output_path,
         extension_distance=extension_distance,
         width_column=cfg.dataset.width_column,
+        target_area=target_area,
+        plot_area=plot_area,
+        min_area=min_area,
         max_workers=num_workers
     )
 

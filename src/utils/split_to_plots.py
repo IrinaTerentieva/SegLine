@@ -316,7 +316,7 @@ def main(cfg: DictConfig):
 
     # Configuration parameters
     num_workers = cfg.split_to_plots.get("num_workers", None)
-    segment_area = int(cfg.split_to_plots.segment_area)
+    segment_area = int(cfg.split_to_plots.plot_area)
     extension_distance = cfg.split_to_plots.extension_distance
     max_splitter_length = cfg.split_to_plots.max_splitter_length_buffer
 
