@@ -36,9 +36,9 @@
 
 ###### ROADS
 dataset:
-  ground_footprint: "/media/irina/My Book1/LiDea_BigExperiment/vector/FLM/Footprint/centerlines_clipped_by_sketchmapping_est_width_buffer_narrow.gpkg"
+  ground_footprint: "/media/irina/My Book1/LiDea_BigExperiment/vector/FLM/Footprint/LiDea_centerlines_2025_sketchmapping_est_width_buffer_narrow.gpkg"
   ground_footprint_layer: null      # null if NO layer
-  centerline: "/media/irina/My Book1/LiDea_BigExperiment/vector/FLM/Footprint/centerlines_clipped_by_sketchmapping_est_width.gpkg"
+  centerline: "/media/irina/My Book1/LiDea_BigExperiment/vector/FLM/Footprint/LiDea_centerlines_2025_sketchmapping_est_width.gpkg"
   centerline_layer: null            # null if NO layer
   debug: false
   unique_id_length: 3
@@ -55,7 +55,7 @@ smoothening:
   num_workers: 4
 
 split_to_plots:
-  plot_area: 50
+  plot_area: 100
   num_workers: 24
   extension_distance: 100
   max_splitter_length_buffer: 50
@@ -68,7 +68,7 @@ split_to_side:
   min_area: 5
 
 split_to_subplots:
-  subplot_area: 10         # Should be 1/5 of plot area!!!
+  subplot_area: 20         # Should be 1/5 of plot area!!!
   min_area_fraction: 0.06  # Merge subplots smaller than this fraction of plot_area (0.05 * 50 = 2.5 m²)
   num_workers: 24
   max_splitter_length_buffer: 50
