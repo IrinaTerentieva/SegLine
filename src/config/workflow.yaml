@@ -41,7 +41,7 @@ dataset:
   centerline: "/path/to/data.gpkg"
   centerline_layer: null            # null if NO layer
   debug: false
-  unique_id_length: 3
+  unique_id_length: 4
   min_length: 20
   width_column: "adjusted_width"  # Column name for width values in your data
 
