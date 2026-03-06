@@ -128,29 +128,14 @@ def _measure_overlap(geom_a, geom_b, tolerance):
     return overlap.length
 
 
-def _trim_line(shorter, longer, tolerance):
-    """Remove the portion of `shorter` that overlaps `longer`. Returns trimmed line or None."""
-    trimmed = shorter.difference(longer.buffer(tolerance))
-
-    if trimmed.is_empty:
-        return None
-
-    if isinstance(trimmed, MultiLineString):
-        parts = sorted(trimmed.geoms, key=lambda g: g.length, reverse=True)
-        trimmed = parts[0] if parts[0].length > tolerance else None
-        if trimmed is None:
-            return None
-
-    if not isinstance(trimmed, LineString) or trimmed.length <= tolerance:
-        return None
-
-    # Snap the connection end back to the longer line
-    start_pt = Point(trimmed.coords[0])
-    end_pt = Point(trimmed.coords[-1])
+def _snap_part(part, longer):
+    """Snap the end of a line part closest to `longer` back onto it."""
+    start_pt = Point(part.coords[0])
+    end_pt = Point(part.coords[-1])
     dist_start = longer.distance(start_pt)
     dist_end = longer.distance(end_pt)
 
-    coords = list(trimmed.coords)
+    coords = list(part.coords)
     if dist_start < dist_end:
         snap_pt = longer.interpolate(longer.project(start_pt))
         coords[0] = (snap_pt.x, snap_pt.y)
@@ -159,6 +144,33 @@ def _trim_line(shorter, longer, tolerance):
         coords[-1] = (snap_pt.x, snap_pt.y)
 
     return LineString(coords)
+
+
+def _trim_line(shorter, longer, tolerance):
+    """Remove the portion of `shorter` that overlaps `longer`. Returns trimmed geometry or None."""
+    trimmed = shorter.difference(longer.buffer(tolerance))
+
+    if trimmed.is_empty:
+        return None
+
+    if isinstance(trimmed, MultiLineString):
+        # Keep all significant parts, snap each one
+        significant = [p for p in trimmed.geoms if p.length > tolerance]
+        if not significant:
+            return None
+        snapped = [_snap_part(p, longer) for p in significant]
+        if len(snapped) == 1:
+            return snapped[0]
+        # Try to merge back into a single line
+        merged = linemerge(MultiLineString(snapped))
+        if isinstance(merged, LineString):
+            return merged
+        return MultiLineString(snapped)
+
+    if not isinstance(trimmed, LineString) or trimmed.length <= tolerance:
+        return None
+
+    return _snap_part(trimmed, longer)
 
 
 def trim_partial_overlaps(gdf, tolerance=0.5):

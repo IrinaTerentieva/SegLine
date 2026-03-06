@@ -36,12 +36,12 @@
 
 ###### ROADS
 dataset:
-  ground_footprint: "/media/irina/My Book1/LiDea_BigExperiment/vector/FLM/Footprint/LiDea_centerlines_2025_sketchmapping_est_width_buffer_narrow_3ma.gpkg"
+  ground_footprint: "/media/irina/My Book1/LiDea_BigExperiment/vector/FLM/Footprint/LiDea_centerlines_2025_sketchmapping_est_width_buffer_narrow.gpkg"
   ground_footprint_layer: null      # null if NO layer
   centerline: "/media/irina/My Book1/LiDea_BigExperiment/vector/FLM/Footprint/LiDea_centerlines_2025_sketchmapping_est_width.gpkg"
   centerline_layer: null            # null if NO layer
   debug: false
-  unique_id_length: 3
+  unique_id_length: 4
   min_length: 20
   width_column: "adjusted_width"  # Column name for width values in your data
 

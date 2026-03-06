@@ -20,6 +20,64 @@ warnings.filterwarnings('ignore')
 # -----------------------------
 # Geometry helper functions
 # -----------------------------
+def snap_linestring_gaps(geom, tolerance=1.0):
+    """
+    Snap small gaps in a MultiLineString by connecting endpoints that are within tolerance.
+    Returns a LineString if all gaps are closed, or MultiLineString with fewer parts.
+    """
+    if not isinstance(geom, MultiLineString):
+        return geom
+
+    parts = list(geom.geoms)
+    if len(parts) <= 1:
+        return geom
+
+    chains = [list(p.coords) for p in parts]
+
+    changed = True
+    while changed:
+        changed = False
+        for i in range(len(chains)):
+            if chains[i] is None:
+                continue
+            for j in range(i + 1, len(chains)):
+                if chains[j] is None:
+                    continue
+                pairs = [
+                    ('end_i', 'start_j', chains[i][-1], chains[j][0]),
+                    ('end_i', 'end_j', chains[i][-1], chains[j][-1]),
+                    ('start_i', 'start_j', chains[i][0], chains[j][0]),
+                    ('start_i', 'end_j', chains[i][0], chains[j][-1]),
+                ]
+                for label, _, p1, p2 in pairs:
+                    dist = np.sqrt((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2)
+                    if dist <= tolerance and dist > 0:
+                        if label == 'end_i':
+                            if _ == 'start_j':
+                                chains[i] = chains[i] + chains[j]
+                            else:
+                                chains[i] = chains[i] + list(reversed(chains[j]))
+                        else:
+                            if _ == 'start_j':
+                                chains[i] = list(reversed(chains[j])) + chains[i]
+                            else:
+                                chains[i] = chains[j] + chains[i]
+                        chains[j] = None
+                        changed = True
+                        break
+                if changed:
+                    break
+            if changed:
+                break
+
+    remaining = [LineString(c) for c in chains if c is not None and len(c) >= 2]
+    if len(remaining) == 1:
+        return remaining[0]
+    elif len(remaining) > 1:
+        return linemerge(MultiLineString(remaining))
+    return geom
+
+
 def extend_line(line: LineString, extension_distance=100):
     """
     Extend a line at both ends by a given distance.
@@ -68,6 +126,7 @@ def extend_line(line: LineString, extension_distance=100):
 def generate_perpendiculars(centerline, avg_width, target_area, max_splitter_length=10):
     """
     Generate perpendicular lines to the centerline at intervals calculated to achieve a target area.
+    Skips the last perpendicular if it would create a leftover fragment smaller than half the target.
     """
     if avg_width <= 0:
         avg_width = 5
@@ -77,7 +136,15 @@ def generate_perpendiculars(centerline, avg_width, target_area, max_splitter_len
 
     perpendiculars = []
     try:
-        for distance in np.arange(0, centerline.length, spacing):
+        distances = list(np.arange(0, centerline.length, spacing))
+
+        # Drop the last perpendicular if it would leave a fragment < half the spacing
+        if len(distances) > 1:
+            remaining = centerline.length - distances[-1]
+            if remaining < spacing * 0.5:
+                distances = distances[:-1]
+
+        for distance in distances:
             point = centerline.interpolate(distance)
             next_point = centerline.interpolate(min(distance + 1, centerline.length))
             dx, dy = next_point.x - point.x, next_point.y - point.y
@@ -152,8 +219,12 @@ def process_polygon_worker(args):
 
         if isinstance(smooth_centerline_geom, MultiLineString):
             smooth_centerline_geom = linemerge(smooth_centerline_geom)
+            if isinstance(smooth_centerline_geom, MultiLineString):
+                smooth_centerline_geom = snap_linestring_gaps(smooth_centerline_geom, tolerance=1.0)
         if isinstance(centerline_geom, MultiLineString):
             centerline_geom = linemerge(centerline_geom)
+            if isinstance(centerline_geom, MultiLineString):
+                centerline_geom = snap_linestring_gaps(centerline_geom, tolerance=1.0)
 
         extended_centerline = extend_line(centerline_geom, extension_distance)
         extended_smooth_centerline = extend_line(smooth_centerline_geom, extension_distance)

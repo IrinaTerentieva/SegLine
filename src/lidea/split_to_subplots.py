@@ -69,6 +69,7 @@ def extend_line(line: LineString, extension_distance=100):
 def generate_perpendiculars(centerline, avg_width, target_area, max_splitter_length=10):
     """
     Generate perpendicular lines to the centerline at intervals calculated to achieve a target area.
+    Skips the last perpendicular if it would create a leftover fragment smaller than half the target.
     """
     if avg_width <= 0:
         avg_width = 5
@@ -78,7 +79,15 @@ def generate_perpendiculars(centerline, avg_width, target_area, max_splitter_len
 
     perpendiculars = []
     try:
-        for distance in np.arange(0, centerline.length, spacing):
+        distances = list(np.arange(0, centerline.length, spacing))
+
+        # Drop the last perpendicular if it would leave a fragment < half the spacing
+        if len(distances) > 1:
+            remaining = centerline.length - distances[-1]
+            if remaining < spacing * 0.5:
+                distances = distances[:-1]
+
+        for distance in distances:
             point = centerline.interpolate(distance)
             next_point = centerline.interpolate(min(distance + 1, centerline.length))
             dx, dy = next_point.x - point.x, next_point.y - point.y
@@ -160,15 +169,51 @@ def process_subplot_worker(args):
         extended_centerline = extend_line(centerline_geom, extension_distance)
         extended_smooth_centerline = extend_line(smooth_centerline_geom, extension_distance)
 
-        # Try smooth centerline first
-        perpendiculars = generate_perpendiculars(extended_smooth_centerline, avg_width,
-                                                 target_area, max_splitter_length=max_width)
+        # Find this polygon's extent along the centerline to center perpendiculars
+        use_cl = extended_smooth_centerline if isinstance(extended_smooth_centerline, LineString) else extended_centerline
+        if isinstance(use_cl, LineString) and not use_cl.is_empty:
+            # Project polygon boundary points onto centerline to find extent
+            boundary_coords = list(polygon.exterior.coords)
+            projections = [use_cl.project(Point(c[0], c[1])) for c in boundary_coords]
+            poly_start = min(projections)
+            poly_end = max(projections)
+            poly_span = poly_end - poly_start
 
-        # Fall back to regular centerline if needed
-        if len(perpendiculars) < 5:
-            logging.debug(f'Bad perpendiculars for {unique_id}, switching to regular centerline')
-            perpendiculars = generate_perpendiculars(extended_centerline, avg_width,
+            if avg_width <= 0:
+                avg_width = 5
+            spacing = target_area / avg_width
+
+            if spacing > 0 and poly_span > 0:
+                # Number of intervals that fit, centered within the polygon's span
+                n_intervals = max(1, round(poly_span / spacing))
+                adjusted_spacing = poly_span / n_intervals
+                # Generate perpendiculars centered on the polygon's extent
+                perpendiculars = []
+                for i in range(1, n_intervals):
+                    distance = poly_start + i * adjusted_spacing
+                    point = use_cl.interpolate(distance)
+                    next_point = use_cl.interpolate(min(distance + 1, use_cl.length))
+                    dx, dy = next_point.x - point.x, next_point.y - point.y
+                    perpendicular_vector = (-dy, dx)
+                    length = np.sqrt(perpendicular_vector[0] ** 2 + perpendicular_vector[1] ** 2)
+                    if length == 0:
+                        continue
+                    unit_vector = (perpendicular_vector[0] / length, perpendicular_vector[1] / length)
+                    half_length = max_width / 2
+                    start = (point.x - unit_vector[0] * half_length,
+                             point.y - unit_vector[1] * half_length)
+                    end = (point.x + unit_vector[0] * half_length,
+                           point.y + unit_vector[1] * half_length)
+                    perpendiculars.append(LineString([start, end]))
+            else:
+                perpendiculars = []
+        else:
+            # Fallback to old approach
+            perpendiculars = generate_perpendiculars(extended_smooth_centerline, avg_width,
                                                      target_area, max_splitter_length=max_width)
+            if len(perpendiculars) < 5:
+                perpendiculars = generate_perpendiculars(extended_centerline, avg_width,
+                                                         target_area, max_splitter_length=max_width)
 
         # Input polygons are already split into sides by split_to_sides,
         # so skip centerline splitting and only split by perpendiculars.
@@ -178,6 +223,19 @@ def process_subplot_worker(args):
             for segment in segments:
                 temp_segments.extend(split_geometry(segment, perp))
             segments = temp_segments
+
+        # Merge small endpoint fragments into their neighbor before returning
+        # Use target_area * 0.3 to catch fragments that Phase 1 (min_area) would catch later
+        min_subplot = target_area * 0.3
+        if len(segments) > 1:
+            # Check first segment
+            if segments[0].area < min_subplot:
+                segments[1] = unary_union([segments[1], segments[0]])
+                segments = segments[1:]
+            # Check last segment
+            if len(segments) > 1 and segments[-1].area < min_subplot:
+                segments[-2] = unary_union([segments[-2], segments[-1]])
+                segments = segments[:-1]
 
         # Return results
         results = []
@@ -354,11 +412,18 @@ def process_subplots_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
         split_polygons_gdf = split_polygons_gdf.reset_index(drop=True)
         split_polygons_gdf['subplot_id'] = split_polygons_gdf.index
 
-        # Merge small subplots into adjacent neighbor on the same side
+        # Merge small subplots into adjacent neighbor on the SAME side AND plot_id.
+        # plot_id=-1 slivers merge into nearest valid-plot neighbor on same side.
         n_before = len(split_polygons_gdf)
         side_col = 'side' if 'side' in split_polygons_gdf.columns else None
-        group_cols = ['UniqueID', side_col] if side_col else ['UniqueID']
-        group_cols = [c for c in group_cols if c is not None]
+        has_plot_id = 'plot_id' in split_polygons_gdf.columns
+
+        # Phase 1: merge small subplots within same (UniqueID, side, plot_id)
+        group_cols = ['UniqueID']
+        if side_col:
+            group_cols.append(side_col)
+        if has_plot_id:
+            group_cols.append('plot_id')
 
         merged_groups = []
         for group_key, group in split_polygons_gdf.groupby(group_cols):
@@ -397,14 +462,25 @@ def process_subplots_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
 
         split_polygons_gdf = gpd.GeoDataFrame(
             pd.concat(merged_groups, ignore_index=True), crs=footprint_gdf.crs)
-        n_merged = n_before - len(split_polygons_gdf)
-        if n_merged > 0:
-            logging.info(f"Merged {n_merged} small subplots (area < {min_area:.1f} m²) into adjacent neighbors")
+
+        # Phase 2: drop remaining small slivers that couldn't merge within their own plot
+        still_tiny = split_polygons_gdf[split_polygons_gdf['area'] < min_area]
+        if len(still_tiny) > 0:
+            n_drop = len(still_tiny)
+            logging.info(f"Dropping {n_drop} orphan slivers (area < {min_area:.1f} m²) that couldn't merge within their plot")
+            split_polygons_gdf = split_polygons_gdf.drop(still_tiny.index)
+
+        n_removed = n_before - len(split_polygons_gdf)
+        if n_removed > 0:
+            logging.info(f"Removed {n_removed} small subplots (area < {min_area:.1f} m²): merged or dropped")
 
         # Recalculate after merging
         split_polygons_gdf['area'] = split_polygons_gdf.geometry.area.round(1)
+        split_polygons_gdf['subplot_area'] = split_polygons_gdf['area']
         split_polygons_gdf['length'] = split_polygons_gdf.geometry.length.round(1)
         split_polygons_gdf['perimeter'] = split_polygons_gdf.geometry.length.round(1)
+        split_polygons_gdf['plot_area'] = split_polygons_gdf.groupby(
+            ['UniqueID', 'plot_id', 'side'])['area'].transform('sum').round(1)
 
         # Reassign subplot_id after merging
         split_polygons_gdf = split_polygons_gdf.reset_index(drop=True)
