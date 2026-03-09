@@ -238,6 +238,9 @@ def merge_small_fragments(segments, min_area, centerline=None):
                                or merged[i].distance(merged[j]) < 0.01)
                 if not is_neighbor:
                     continue
+                # Only merge into neighbors on the same side of the centerline
+                if not _same_side_of_centerline(merged[i], merged[j], centerline):
+                    continue
                 # Prefer neighbors with shared edge (clean union) over point-touch
                 inter = merged[i].boundary.intersection(merged[j].boundary)
                 shared_len = inter.length if not inter.is_empty else 0
@@ -247,15 +250,21 @@ def merge_small_fragments(segments, min_area, centerline=None):
                     best_j = j
             if best_j is not None:
                 combined = unary_union([merged[best_j], merged[i]])
-                # If union creates MultiPolygon, buffer(0) to try to fix; keep largest if still multi
+                # If union creates MultiPolygon, use progressively larger buffer to merge
                 if hasattr(combined, 'geoms'):
-                    combined = combined.buffer(0.001).buffer(-0.001)
+                    for buf in [0.001, 0.01, 0.05]:
+                        combined = combined.buffer(buf).buffer(-buf)
+                        if not hasattr(combined, 'geoms'):
+                            break
                     if hasattr(combined, 'geoms'):
                         combined = max(combined.geoms, key=lambda g: g.area)
                 merged[best_j] = combined
                 merged.pop(i)
                 changed = True
                 break  # Restart after each merge
+
+    # Drop any remaining fragments below min_area that couldn't merge
+    merged = [s for s in merged if s.area >= min_area]
 
     return merged
 
@@ -327,7 +336,7 @@ def process_polygon_worker(args):
             segments = temp_segments
 
         # Merge small fragments into adjacent neighbors (same side of centerline only)
-        min_frag_area = target_area * 0.1
+        min_frag_area = target_area * 0.25  # Merge fragments < 25% of target (handles endpoint leftovers)
         if len(segments) > 1:
             segments = merge_small_fragments(segments, min_frag_area, centerline=centerline_geom)
 
