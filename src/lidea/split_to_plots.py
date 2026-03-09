@@ -186,23 +186,26 @@ def split_geometry(geometry, splitter):
 
 
 def _same_side_of_centerline(geom_a, geom_b, centerline):
-    """Check if two polygons' centroids are on the same side of the centerline."""
+    """Check if two polygons' centroids are on the same side of the centerline.
+    Uses local tangent at each centroid's projection point independently."""
     if centerline is None:
         return True
+    from shapely.geometry import Point
     ca = geom_a.centroid
     cb = geom_b.centroid
-    # Project centroids and get local tangent direction
-    from shapely.geometry import Point
-    proj_a = centerline.project(Point(ca.x, ca.y))
-    pt_a = centerline.interpolate(proj_a)
     cl_len = centerline.length
     delta = max(0.5, cl_len * 0.001)
-    pt_before = centerline.interpolate(max(0, proj_a - delta))
-    pt_after = centerline.interpolate(min(cl_len, proj_a + delta))
-    dx = pt_after.x - pt_before.x
-    dy = pt_after.y - pt_before.y
-    cross_a = dx * (ca.y - pt_a.y) - dy * (ca.x - pt_a.x)
-    cross_b = dx * (cb.y - pt_a.y) - dy * (cb.x - pt_a.x)
+
+    def _cross(centroid, proj):
+        pt_on = centerline.interpolate(proj)
+        pt_before = centerline.interpolate(max(0, proj - delta))
+        pt_after = centerline.interpolate(min(cl_len, proj + delta))
+        dx = pt_after.x - pt_before.x
+        dy = pt_after.y - pt_before.y
+        return dx * (centroid.y - pt_on.y) - dy * (centroid.x - pt_on.x)
+
+    cross_a = _cross(ca, centerline.project(Point(ca.x, ca.y)))
+    cross_b = _cross(cb, centerline.project(Point(cb.x, cb.y)))
     return (cross_a >= 0) == (cross_b >= 0)
 
 
