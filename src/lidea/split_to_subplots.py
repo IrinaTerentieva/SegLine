@@ -130,7 +130,7 @@ def process_subplot_worker(args):
     Worker function for multiprocessing. Unpacks arguments and processes a single polygon.
     """
     (idx, footprint_row_dict, geometry_wkt, centerlines_by_id, smooth_centerlines_by_id,
-     target_area, extension_distance, width_column, crs) = args
+     target_area, extension_distance, width_column, crs, plot_perp_wkts) = args
 
     try:
         # Reconstruct geometry from WKT
@@ -169,51 +169,52 @@ def process_subplot_worker(args):
         extended_centerline = extend_line(centerline_geom, extension_distance)
         extended_smooth_centerline = extend_line(smooth_centerline_geom, extension_distance)
 
-        # Find this polygon's extent along the centerline to center perpendiculars
-        use_cl = extended_smooth_centerline if isinstance(extended_smooth_centerline, LineString) else extended_centerline
-        if isinstance(use_cl, LineString) and not use_cl.is_empty:
-            # Project polygon boundary points onto centerline to find extent
-            boundary_coords = list(polygon.exterior.coords)
-            projections = [use_cl.project(Point(c[0], c[1])) for c in boundary_coords]
-            poly_start = min(projections)
-            poly_end = max(projections)
-            poly_span = poly_end - poly_start
-
-            if avg_width <= 0:
-                avg_width = 5
-            spacing = target_area / avg_width
-
-            if spacing > 0 and poly_span > 0:
-                # Number of intervals that fit, centered within the polygon's span
-                n_intervals = max(1, round(poly_span / spacing))
-                adjusted_spacing = poly_span / n_intervals
-                # Generate perpendiculars centered on the polygon's extent
-                perpendiculars = []
-                for i in range(1, n_intervals):
-                    distance = poly_start + i * adjusted_spacing
-                    point = use_cl.interpolate(distance)
-                    next_point = use_cl.interpolate(min(distance + 1, use_cl.length))
-                    dx, dy = next_point.x - point.x, next_point.y - point.y
-                    perpendicular_vector = (-dy, dx)
-                    length = np.sqrt(perpendicular_vector[0] ** 2 + perpendicular_vector[1] ** 2)
-                    if length == 0:
-                        continue
-                    unit_vector = (perpendicular_vector[0] / length, perpendicular_vector[1] / length)
-                    half_length = max_width / 2
-                    start = (point.x - unit_vector[0] * half_length,
-                             point.y - unit_vector[1] * half_length)
-                    end = (point.x + unit_vector[0] * half_length,
-                           point.y + unit_vector[1] * half_length)
-                    perpendiculars.append(LineString([start, end]))
-            else:
-                perpendiculars = []
+        # Use pre-computed perpendiculars if available (ensures both sides of a plot use EXACT same splitters)
+        plot_key = (unique_id, footprint_row_dict.get('plot_id', -1))
+        if plot_perp_wkts and plot_key in plot_perp_wkts:
+            perpendiculars = [wkt.loads(pw) for pw in plot_perp_wkts[plot_key]]
         else:
-            # Fallback to old approach
-            perpendiculars = generate_perpendiculars(extended_smooth_centerline, avg_width,
-                                                     target_area, max_splitter_length=max_width)
-            if len(perpendiculars) < 5:
-                perpendiculars = generate_perpendiculars(extended_centerline, avg_width,
+            # Fallback: compute from this polygon's boundary
+            use_cl = extended_smooth_centerline if isinstance(extended_smooth_centerline, LineString) else extended_centerline
+            if isinstance(use_cl, LineString) and not use_cl.is_empty:
+                boundary_coords = list(polygon.exterior.coords)
+                projections = [use_cl.project(Point(c[0], c[1])) for c in boundary_coords]
+                poly_start = min(projections)
+                poly_end = max(projections)
+                poly_span = poly_end - poly_start
+
+                if avg_width <= 0:
+                    avg_width = 5
+                spacing = target_area / avg_width
+
+                if spacing > 0 and poly_span > 0:
+                    n_intervals = max(1, round(poly_span / spacing))
+                    adjusted_spacing = poly_span / n_intervals
+                    perpendiculars = []
+                    for i in range(1, n_intervals):
+                        distance = poly_start + i * adjusted_spacing
+                        point = use_cl.interpolate(distance)
+                        next_point = use_cl.interpolate(min(distance + 1, use_cl.length))
+                        dx, dy = next_point.x - point.x, next_point.y - point.y
+                        perpendicular_vector = (-dy, dx)
+                        length = np.sqrt(perpendicular_vector[0] ** 2 + perpendicular_vector[1] ** 2)
+                        if length == 0:
+                            continue
+                        unit_vector = (perpendicular_vector[0] / length, perpendicular_vector[1] / length)
+                        half_length = max_width / 2
+                        start = (point.x - unit_vector[0] * half_length,
+                                 point.y - unit_vector[1] * half_length)
+                        end = (point.x + unit_vector[0] * half_length,
+                               point.y + unit_vector[1] * half_length)
+                        perpendiculars.append(LineString([start, end]))
+                else:
+                    perpendiculars = []
+            else:
+                perpendiculars = generate_perpendiculars(extended_smooth_centerline, avg_width,
                                                          target_area, max_splitter_length=max_width)
+                if len(perpendiculars) < 5:
+                    perpendiculars = generate_perpendiculars(extended_centerline, avg_width,
+                                                             target_area, max_splitter_length=max_width)
 
         # Input polygons are already split into sides by split_to_sides,
         # so skip centerline splitting and only split by perpendiculars.
@@ -356,6 +357,69 @@ def process_subplots_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
     logging.info(f"Loaded {len(centerlines_by_id)} regular centerlines")
     logging.info(f"Loaded {len(smooth_centerlines_by_id)} smooth centerlines")
 
+    # Pre-compute perpendicular WKTs per plot so both sides use the EXACT same splitters
+    plot_perp_wkts = {}
+    plot_extents = {}
+    if 'plot_id' in footprint_gdf.columns and 'UniqueID' in footprint_gdf.columns:
+        for (uid, pid), group in footprint_gdf.groupby(['UniqueID', 'plot_id']):
+            if pid == -1:
+                continue
+            cl_wkt = smooth_centerlines_by_id.get(uid) or centerlines_by_id.get(uid)
+            if not cl_wkt:
+                continue
+            from shapely import wkt as wkt_mod
+            cl_geom = wkt_mod.loads(cl_wkt)
+            if isinstance(cl_geom, MultiLineString):
+                cl_geom = linemerge(cl_geom)
+            if not isinstance(cl_geom, LineString) or cl_geom.is_empty:
+                continue
+            ext_cl = extend_line(cl_geom, extension_distance)
+            all_projs = []
+            for _, r in group.iterrows():
+                if r.geometry and r.geometry.is_valid:
+                    coords = list(r.geometry.exterior.coords) if hasattr(r.geometry, 'exterior') else []
+                    if hasattr(r.geometry, 'geoms'):
+                        for part in r.geometry.geoms:
+                            coords.extend(list(part.exterior.coords))
+                    all_projs.extend([ext_cl.project(Point(c[0], c[1])) for c in coords])
+            if not all_projs:
+                continue
+            poly_start, poly_end = min(all_projs), max(all_projs)
+            plot_extents[(uid, pid)] = (poly_start, poly_end)
+
+            # Get avg_width from group
+            avg_width = group.iloc[0].get(width_column, 0) if width_column in group.columns else 0
+            if avg_width <= 0:
+                avg_width = 5
+            eff_target = target_area
+            if avg_width >= 9:
+                eff_target = int(target_area * 2)
+            max_width = avg_width + 10
+            if max_width <= 5:
+                max_width = 15
+
+            spacing = eff_target / avg_width
+            poly_span = poly_end - poly_start
+            if spacing > 0 and poly_span > 0:
+                n_intervals = max(1, round(poly_span / spacing))
+                adjusted_spacing = poly_span / n_intervals
+                perp_wkts = []
+                for i in range(1, n_intervals):
+                    distance = poly_start + i * adjusted_spacing
+                    point = ext_cl.interpolate(distance)
+                    next_point = ext_cl.interpolate(min(distance + 1, ext_cl.length))
+                    dx, dy = next_point.x - point.x, next_point.y - point.y
+                    pv = (-dy, dx)
+                    length = np.sqrt(pv[0] ** 2 + pv[1] ** 2)
+                    if length == 0:
+                        continue
+                    uv = (pv[0] / length, pv[1] / length)
+                    half = max_width / 2
+                    perp = LineString([(point.x - uv[0]*half, point.y - uv[1]*half),
+                                       (point.x + uv[0]*half, point.y + uv[1]*half)])
+                    perp_wkts.append(perp.wkt)
+                plot_perp_wkts[(uid, pid)] = perp_wkts
+
     # Prepare arguments for workers
     worker_args = []
     for idx, row in footprint_gdf.iterrows():
@@ -366,7 +430,7 @@ def process_subplots_parallel_optimized(footprint_gdf, centerline_gdf, smooth_ce
             geometry_wkt = row.geometry.wkt
 
             args = (idx, row_dict, geometry_wkt, centerlines_by_id, smooth_centerlines_by_id,
-                    target_area, extension_distance, width_column, footprint_gdf.crs)
+                    target_area, extension_distance, width_column, footprint_gdf.crs, plot_perp_wkts)
             worker_args.append(args)
 
     logging.info(f"Processing {len(worker_args)} polygons...")

@@ -182,6 +182,50 @@ def split_geometry(geometry, splitter):
         return []
 
 
+def merge_small_fragments(segments, min_area):
+    """
+    Merge small polygon fragments into their largest boundary-sharing neighbor.
+    Repeats until no small fragments remain or no merges are possible.
+    """
+    if len(segments) <= 1:
+        return segments
+
+    merged = list(segments)
+    changed = True
+    while changed:
+        changed = False
+        areas = [s.area for s in merged]
+        # Process smallest fragments first
+        order = sorted(range(len(merged)), key=lambda i: areas[i])
+        for i in order:
+            if areas[i] >= min_area:
+                continue
+            # Find the largest neighbor that shares a boundary
+            best_j = None
+            best_area = 0
+            for j in range(len(merged)):
+                if j == i:
+                    continue
+                if merged[i].touches(merged[j]) or (not merged[i].intersection(merged[j]).is_empty
+                        and merged[i].intersection(merged[j]).length > 0):
+                    if areas[j] > best_area:
+                        best_area = areas[j]
+                        best_j = j
+            if best_j is not None:
+                combined = unary_union([merged[best_j], merged[i]])
+                # If union creates MultiPolygon, buffer(0) to try to fix; keep largest if still multi
+                if hasattr(combined, 'geoms'):
+                    combined = combined.buffer(0.001).buffer(-0.001)
+                    if hasattr(combined, 'geoms'):
+                        combined = max(combined.geoms, key=lambda g: g.area)
+                merged[best_j] = combined
+                merged.pop(i)
+                changed = True
+                break  # Restart after each merge
+
+    return merged
+
+
 def process_polygon_worker(args):
     """
     Worker function for multiprocessing. Unpacks arguments and processes a single polygon.
@@ -245,6 +289,14 @@ def process_polygon_worker(args):
             for segment in segments:
                 temp_segments.extend(split_geometry(segment, perp))
             segments = temp_segments
+
+        # Merge small fragments into adjacent neighbors
+        min_frag_area = target_area * 0.1
+        if len(segments) > 1:
+            segments = merge_small_fragments(segments, min_frag_area)
+
+        # Clean up near-degenerate edges (spikes from centerline split)
+        segments = [s.simplify(0.01, preserve_topology=True) for s in segments]
 
         # Return results
         results = []
