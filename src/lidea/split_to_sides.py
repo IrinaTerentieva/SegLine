@@ -100,7 +100,7 @@ def get_centerline_for_uid(centerline_gdf, uid):
 def assign_sides_spatially(subset, centerline_geom):
     """
     Assign side 0/1 based on which side of the centerline each polygon centroid falls on.
-    Uses the signed distance (cross product) from the centerline direction.
+    Uses the LOCAL centerline direction at the nearest point (handles bends correctly).
     """
     if centerline_geom is None or centerline_geom.is_empty:
         # Fallback: use the naive half-split
@@ -110,23 +110,67 @@ def assign_sides_spatially(subset, centerline_geom):
         subset.iloc[half_rows:, subset.columns.get_loc("side")] = 0
         return subset
 
-    # Get the overall direction vector of the centerline
-    coords = list(centerline_geom.coords)
-    start = np.array(coords[0])
-    end = np.array(coords[-1])
-    direction = end - start
+    cl_length = centerline_geom.length
 
     sides = []
     for _, row in subset.iterrows():
         centroid = row.geometry.centroid
-        # Project centroid onto centerline, get nearest point
-        nearest_pt = centerline_geom.interpolate(centerline_geom.project(Point(centroid.x, centroid.y)))
-        # Cross product of direction vector with vector from nearest point to centroid
+        proj_dist = centerline_geom.project(Point(centroid.x, centroid.y))
+        nearest_pt = centerline_geom.interpolate(proj_dist)
+
+        # Local direction: tangent vector at the projected point
+        delta = max(0.5, cl_length * 0.001)
+        pt_before = centerline_geom.interpolate(max(0, proj_dist - delta))
+        pt_after = centerline_geom.interpolate(min(cl_length, proj_dist + delta))
+        direction = np.array([pt_after.x - pt_before.x, pt_after.y - pt_before.y])
+
         to_centroid = np.array([centroid.x - nearest_pt.x, centroid.y - nearest_pt.y])
         cross = direction[0] * to_centroid[1] - direction[1] * to_centroid[0]
         sides.append(1 if cross >= 0 else 0)
 
     subset["side"] = sides
+
+    # Bend correction: at sharp bends, both strips may get the same side because
+    # their centroids are on the same side of the local tangent. Detect same-side
+    # pairs that share a significant linear boundary (the centerline between them)
+    # and flip one to the opposite side.
+    # Collect all candidate flip pairs first, then process once per part.
+    indices = list(subset.index)
+    flip_candidates = []  # (idx_to_flip, idx_partner, shared_length)
+    for i in range(len(indices)):
+        for j in range(i + 1, len(indices)):
+            idx_i, idx_j = indices[i], indices[j]
+            if subset.at[idx_i, 'side'] != subset.at[idx_j, 'side']:
+                continue
+            geom_i = subset.at[idx_i, 'geometry']
+            geom_j = subset.at[idx_j, 'geometry']
+            shared = geom_i.boundary.intersection(geom_j.boundary)
+            # Threshold must be high enough to distinguish centerline boundaries (~30m)
+            # from perpendicular cut boundaries (~1.5m corridor half-width)
+            if shared.is_empty or shared.length < 5.0:
+                continue
+            # These two same-side parts share a significant boundary (the centerline).
+            # The one closer to the centerline should be flipped.
+            ci = geom_i.centroid
+            cj = geom_j.centroid
+            di = centerline_geom.distance(Point(ci.x, ci.y))
+            dj = centerline_geom.distance(Point(cj.x, cj.y))
+            flip_idx = idx_i if di < dj else idx_j
+            flip_candidates.append((flip_idx, shared.length))
+
+    # Apply flips, only once per part (highest shared length wins)
+    flipped = set()
+    # Sort by shared length descending for strongest signal first
+    flip_candidates.sort(key=lambda x: -x[1])
+    for flip_idx, slen in flip_candidates:
+        if flip_idx in flipped:
+            continue
+        old_side = subset.at[flip_idx, 'side']
+        subset.at[flip_idx, 'side'] = 1 - old_side
+        flipped.add(flip_idx)
+        logging.info(f"Bend correction: flipped PartID={subset.at[flip_idx, 'PartID']} "
+                     f"from side {old_side} to {1 - old_side}")
+
     return subset
 
 
@@ -137,8 +181,15 @@ def get_edge_points(polygon, precision=2):
     """
     if polygon.is_empty or not polygon.is_valid:
         return set()
-    edge_coords = polygon.exterior.coords
-    edge_points = {(round(coord[0], precision), round(coord[1], precision)) for coord in edge_coords}
+    edge_points = set()
+    if hasattr(polygon, 'geoms'):
+        # MultiPolygon: collect edge points from all parts
+        for part in polygon.geoms:
+            edge_points.update(
+                (round(c[0], precision), round(c[1], precision)) for c in part.exterior.coords
+            )
+    else:
+        edge_points = {(round(c[0], precision), round(c[1], precision)) for c in polygon.exterior.coords}
     return edge_points
 
 
@@ -167,31 +218,28 @@ def sort_segments_and_find_pairs(gdf, centerline_gdf=None):
         # Track which polygons have been paired already
         paired = set()
 
-        # Pass 1: exact edge-point matching (shared coordinates)
-        min_area = 5  # minimum area to consider for pairing
+        # Pass 1: edge-point matching — score all candidate pairs, then assign best-first
+        candidates = []
         for idx_0, row_0 in side_0.iterrows():
-            if idx_0 in paired or row_0.geometry.area < min_area:
-                continue
-            best_match = None
-            best_shared = 0
             for idx_1, row_1 in side_1.iterrows():
-                if idx_1 in paired or row_1.geometry.area < min_area:
-                    continue
                 shared_points = row_0["edge_points"].intersection(row_1["edge_points"])
-                if len(shared_points) >= 2 and len(shared_points) > best_shared:
-                    best_shared = len(shared_points)
-                    best_match = idx_1
-            if best_match is not None:
-                subset.at[idx_0, "plot_id"] = segment_id
-                subset.at[best_match, "plot_id"] = segment_id
-                paired.add(idx_0)
-                paired.add(best_match)
-                segment_id += 1
+                if len(shared_points) >= 2:
+                    candidates.append((len(shared_points), idx_0, idx_1))
+        # Sort by shared points descending — strongest matches first
+        candidates.sort(key=lambda x: -x[0])
+        for n_shared, idx_0, idx_1 in candidates:
+            if idx_0 in paired or idx_1 in paired:
+                continue
+            subset.at[idx_0, "plot_id"] = segment_id
+            subset.at[idx_1, "plot_id"] = segment_id
+            paired.add(idx_0)
+            paired.add(idx_1)
+            segment_id += 1
 
-        # Pass 2: proximity-based pairing for remaining large polygons
+        # Pass 2: proximity-based pairing for remaining polygons
         # This handles gaps from fragmented centerlines where edge points don't match
-        unpaired_0 = [i for i in side_0.index if i not in paired and side_0.loc[i].geometry.area >= min_area]
-        unpaired_1 = [i for i in side_1.index if i not in paired and side_1.loc[i].geometry.area >= min_area]
+        unpaired_0 = [i for i in side_0.index if i not in paired]
+        unpaired_1 = [i for i in side_1.index if i not in paired]
 
         if unpaired_0 and unpaired_1:
             # Project each polygon's centroid onto the centerline to get along-corridor position
@@ -224,6 +272,63 @@ def sort_segments_and_find_pairs(gdf, centerline_gdf=None):
                         paired.add(best_match)
                         remaining_1.discard(best_match)
                         segment_id += 1
+
+        # Pass 3a: pair remaining unpaired parts with each other (cross-side, Euclidean distance)
+        still_unpaired_0 = [i for i in subset.index
+                            if subset.at[i, 'plot_id'] == -1 and subset.at[i, 'side'] == 0]
+        still_unpaired_1 = [i for i in subset.index
+                            if subset.at[i, 'plot_id'] == -1 and subset.at[i, 'side'] == 1]
+
+        if still_unpaired_0 and still_unpaired_1:
+            # Compute projection distances for filtering
+            if centerline_geom is not None and not centerline_geom.is_empty:
+                for idx in still_unpaired_0 + still_unpaired_1:
+                    if '_proj_dist' not in subset.columns or np.isnan(subset.at[idx, '_proj_dist']):
+                        c = subset.loc[idx].geometry.centroid
+                        subset.at[idx, '_proj_dist'] = centerline_geom.project(Point(c.x, c.y))
+            remaining_1 = set(still_unpaired_1)
+            for idx_0 in still_unpaired_0:
+                if not remaining_1:
+                    break
+                geom_0 = subset.loc[idx_0].geometry
+                best_match = min(remaining_1, key=lambda i: geom_0.distance(subset.loc[i].geometry))
+                best_dist = geom_0.distance(subset.loc[best_match].geometry)
+                # Also check projection distance to avoid pairing across bends
+                proj_ok = True
+                if '_proj_dist' in subset.columns:
+                    proj_diff = abs(subset.at[idx_0, '_proj_dist'] - subset.at[best_match, '_proj_dist'])
+                    proj_ok = proj_diff < 20.0
+                if best_dist < 100.0 and proj_ok:
+                    subset.at[idx_0, 'plot_id'] = segment_id
+                    subset.at[best_match, 'plot_id'] = segment_id
+                    paired.add(idx_0)
+                    paired.add(best_match)
+                    remaining_1.discard(best_match)
+                    segment_id += 1
+
+        # Pass 3b: merge any still-unpaired parts into nearest paired neighbor on same side
+        still_unpaired = [i for i in subset.index if subset.at[i, 'plot_id'] == -1]
+        if still_unpaired:
+            for idx in still_unpaired:
+                side = subset.at[idx, 'side']
+                geom = subset.at[idx, 'geometry']
+                # Find nearest paired part on the same side
+                same_side_paired = subset[(subset['side'] == side) & (subset['plot_id'] != -1)]
+                if same_side_paired.empty:
+                    continue
+                best_idx = None
+                best_shared = 0
+                for cidx, crow in same_side_paired.iterrows():
+                    shared = geom.boundary.intersection(crow.geometry.boundary)
+                    slen = shared.length if not shared.is_empty else 0
+                    if slen > best_shared:
+                        best_shared = slen
+                        best_idx = cidx
+                # Fallback to nearest by distance if no shared boundary
+                if best_idx is None:
+                    dists = same_side_paired.geometry.distance(geom)
+                    best_idx = dists.idxmin()
+                subset.at[idx, 'plot_id'] = subset.at[best_idx, 'plot_id']
 
         return subset
 
@@ -307,16 +412,22 @@ def main(cfg: DictConfig):
     gdf = gpd.read_file(input_path)
     logging.info(f"Read {len(gdf)} segments from {input_path}")
 
-    # Read centerline for spatial side assignment
-    centerline_path = cfg.dataset.centerline
-    if centerline_path.startswith("file://"):
-        centerline_path = centerline_path[7:]
-    centerline_gdf = gpd.read_file(centerline_path)
+    # Read cleaned centerline (with UniqueID) for spatial side assignment
+    cl_raw_path = cfg.dataset.centerline
+    if cl_raw_path.startswith("file://"):
+        cl_raw_path = cl_raw_path[7:]
+    cl_dir = os.path.dirname(cl_raw_path)
+    cl_base = os.path.basename(cl_raw_path).replace(".gpkg", "_centerline_ID.gpkg")
+    centerline_id_path = os.path.join(cl_dir, cl_base)
+    if not os.path.exists(centerline_id_path):
+        logging.warning(f"Cleaned centerline not found, using raw: {cl_raw_path}")
+        centerline_id_path = cl_raw_path
+    centerline_gdf = gpd.read_file(centerline_id_path)
     # Ensure UniqueID is present on centerlines (map from SegID_new if needed)
     if 'UniqueID' not in centerline_gdf.columns and 'SegID_new' in centerline_gdf.columns:
         seg_to_uid = gdf[['SegID_new', 'UniqueID']].drop_duplicates()
         centerline_gdf = centerline_gdf.merge(seg_to_uid, on='SegID_new', how='left')
-    logging.info(f"Read {len(centerline_gdf)} centerlines for spatial side assignment")
+    logging.info(f"Read {len(centerline_gdf)} centerlines from {centerline_id_path}")
 
     # Process segments to sort and find pairs.
     paired_gdf = sort_segments_and_find_pairs(gdf, centerline_gdf=centerline_gdf)
