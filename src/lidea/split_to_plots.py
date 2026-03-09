@@ -225,19 +225,26 @@ def merge_small_fragments(segments, min_area, centerline=None):
         for i in order:
             if areas[i] >= min_area:
                 continue
-            # Find the largest neighbor that shares a boundary ON THE SAME SIDE
+            # Find the best neighbor to merge into
             best_j = None
-            best_area = 0
+            best_score = (-1, 0)  # (has_shared_edge, area)
             for j in range(len(merged)):
                 if j == i:
                     continue
-                if merged[i].touches(merged[j]) or (not merged[i].intersection(merged[j]).is_empty
-                        and merged[i].intersection(merged[j]).length > 0):
-                    if not _same_side_of_centerline(merged[i], merged[j], centerline):
-                        continue
-                    if areas[j] > best_area:
-                        best_area = areas[j]
-                        best_j = j
+                # Check adjacency: touching, shared edge, or very close (float imprecision)
+                is_neighbor = (merged[i].touches(merged[j])
+                               or (not merged[i].intersection(merged[j]).is_empty
+                                   and merged[i].intersection(merged[j]).length > 0)
+                               or merged[i].distance(merged[j]) < 0.01)
+                if not is_neighbor:
+                    continue
+                # Prefer neighbors with shared edge (clean union) over point-touch
+                inter = merged[i].boundary.intersection(merged[j].boundary)
+                shared_len = inter.length if not inter.is_empty else 0
+                score = (1 if shared_len > 0 else 0, areas[j])
+                if score > best_score:
+                    best_score = score
+                    best_j = j
             if best_j is not None:
                 combined = unary_union([merged[best_j], merged[i]])
                 # If union creates MultiPolygon, buffer(0) to try to fix; keep largest if still multi

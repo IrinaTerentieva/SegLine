@@ -209,6 +209,49 @@ def sort_segments_and_find_pairs(gdf, centerline_gdf=None):
             centerline_geom = get_centerline_for_uid(centerline_gdf, uid)
 
         subset = assign_sides_spatially(subset, centerline_geom)
+
+        # Clip each polygon to its side of the centerline to remove cross-side
+        # artifacts from fragment merging in split_to_plots
+        if centerline_geom is not None and not centerline_geom.is_empty:
+            cl_buf = centerline_geom.buffer(0.001)
+            for idx in subset.index:
+                geom = subset.at[idx, 'geometry']
+                # Check if polygon crosses the centerline
+                if geom.intersects(cl_buf):
+                    # Split by centerline and keep the part on the assigned side
+                    try:
+                        diff = geom.difference(cl_buf)
+                        if diff.is_empty:
+                            continue
+                        if hasattr(diff, 'geoms'):
+                            # Multiple parts — keep the one whose centroid matches assigned side
+                            side = subset.at[idx, 'side']
+                            best_part = None
+                            best_area = 0
+                            for part in diff.geoms:
+                                if not isinstance(part, Polygon) or part.is_empty:
+                                    continue
+                                c = part.centroid
+                                proj_dist = centerline_geom.project(Point(c.x, c.y))
+                                nearest_pt = centerline_geom.interpolate(proj_dist)
+                                delta = max(0.5, centerline_geom.length * 0.001)
+                                pt_b = centerline_geom.interpolate(max(0, proj_dist - delta))
+                                pt_a = centerline_geom.interpolate(min(centerline_geom.length, proj_dist + delta))
+                                dx = pt_a.x - pt_b.x
+                                dy = pt_a.y - pt_b.y
+                                cross = dx * (c.y - nearest_pt.y) - dy * (c.x - nearest_pt.x)
+                                part_side = 1 if cross >= 0 else 0
+                                if part_side == side and part.area > best_area:
+                                    best_area = part.area
+                                    best_part = part
+                            if best_part is not None and best_part.area > 0.1:
+                                subset.at[idx, 'geometry'] = best_part
+                        else:
+                            if diff.area > 0.1:
+                                subset.at[idx, 'geometry'] = diff
+                    except Exception:
+                        pass  # Keep original geometry if clipping fails
+
         subset["edge_points"] = subset.geometry.apply(get_edge_points)
         subset["plot_id"] = -1
         segment_id = 0
