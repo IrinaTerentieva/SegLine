@@ -123,9 +123,12 @@ def extend_line(line: LineString, extension_distance=100):
         return line
 
 
-def generate_perpendiculars(centerline, avg_width, target_area, max_splitter_length=10):
+def generate_perpendiculars(centerline, avg_width, target_area, max_splitter_length=10,
+                            start_offset=0.0):
     """
     Generate perpendicular lines to the centerline at intervals calculated to achieve a target area.
+    start_offset: distance along centerline where the actual corridor starts (for extended centerlines).
+    Perpendiculars start at start_offset so leftover is only at the far end.
     Skips the last perpendicular if it would create a leftover fragment smaller than half the target.
     """
     if avg_width <= 0:
@@ -136,7 +139,7 @@ def generate_perpendiculars(centerline, avg_width, target_area, max_splitter_len
 
     perpendiculars = []
     try:
-        distances = list(np.arange(0, centerline.length, spacing))
+        distances = list(np.arange(start_offset, centerline.length, spacing))
 
         # Drop the last perpendicular if it would leave a fragment < half the spacing
         if len(distances) > 1:
@@ -297,14 +300,16 @@ def process_polygon_worker(args):
         extended_centerline = extend_line(centerline_geom, extension_distance)
         extended_smooth_centerline = extend_line(smooth_centerline_geom, extension_distance)
 
-        # Try smooth centerline first
+        # Try smooth centerline first — start at corridor boundary (after extension)
         perpendiculars = generate_perpendiculars(extended_smooth_centerline, avg_width,
-                                                 target_area, max_splitter_length=max_width)
+                                                 target_area, max_splitter_length=max_width,
+                                                 start_offset=extension_distance)
 
         # Fall back to regular centerline if needed
         if len(perpendiculars) < 5:
             perpendiculars = generate_perpendiculars(extended_centerline, avg_width,
-                                                     target_area, max_splitter_length=max_width)
+                                                     target_area, max_splitter_length=max_width,
+                                                     start_offset=extension_distance)
 
         # Split polygon
         segments = split_geometry(polygon, extended_centerline)
