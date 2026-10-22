@@ -216,8 +216,9 @@ def sort_segments_and_find_pairs(gdf, centerline_gdf=None):
             cl_buf = centerline_geom.buffer(0.001)
             for idx in subset.index:
                 geom = subset.at[idx, 'geometry']
-                # Check if polygon crosses the centerline
-                if geom.intersects(cl_buf):
+                # Clip only polygons the centerline runs through; pieces that just
+                # touch it along their edge are already on one side
+                if geom.buffer(-0.01).intersects(centerline_geom):
                     # Split by centerline and keep the part on the assigned side
                     try:
                         diff = geom.difference(cl_buf)
