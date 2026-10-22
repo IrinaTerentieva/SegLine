@@ -81,3 +81,6 @@ outputs
 *.vrt
 *.img
 *.map
+
+# Local-only config with real data paths (overrides workflow.yaml)
+src/config/local/

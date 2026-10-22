@@ -4,6 +4,7 @@
 defaults:
   - _self_  # Include this file's own keys first.
   - workflow.yaml
+  - optional local@_global_: private  # src/config/local/private.yaml (git-ignored): real data paths, overrides workflow.yaml
 #  - models.yaml
 #  - augmentation.yaml
 #  - training.yaml
