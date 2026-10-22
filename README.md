@@ -180,7 +180,7 @@ This repository is part of the Boreal Ecosystem Recovery and Assessment (BERA) p
 
 **Contributions**
 
-Conceptualization: Irina Terenteva (IT)
+Conceptualization: Irina Terenteva (IT), Nicole Byford (NB)
 
 Coding: IT
 
