@@ -188,3 +188,7 @@ Other Contributions: N/A
 
 
 Irina Terenteva developed this repository while serving a joint role with the **Applied Geospatial Research Group** at the University of Calgary (https://www.appliedgrg.ca/) and **Falcon & Swift Geomatics** (https://www.falconandswift.ca/).  The support of both organizations is acknowledged.
+
+## 📄 License
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
