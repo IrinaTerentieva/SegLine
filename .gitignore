@@ -91,3 +91,4 @@ _archive/
 # Sample input data is published; pipeline outputs written next to it are not
 !sample_data/sample_footprint.gpkg
 !sample_data/sample_centerlines.gpkg
+!sample_data/example_output/**/*.gpkg

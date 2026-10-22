@@ -35,6 +35,8 @@ Requires Python 3.10+.
 
 Always run from the repository root. Each mode takes a few seconds on the sample. Results are written next to the inputs in `sample_data/` (see [Outputs](#-outputs)).
 
+Reference results from both modes are included in `sample_data/example_output/fixed_area/` and `sample_data/example_output/fixed_length/`. Open them in QGIS to see what to expect, or compare them with your own run. `UniqueID` values are random, so they differ between runs.
+
 ## 🔀 Two Segmentation Modes
 
 | | **Fixed area** (`run_fixed_area.py`) | **Fixed length** (`run_fixed_length.py`) |
