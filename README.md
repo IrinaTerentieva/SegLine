@@ -49,7 +49,7 @@ Reference results from both modes are included in `sample_data/example_output/fi
 | **Code** | `src/fixed_area/` | `src/fixed_length/` |
 | **Use when** | Plots must be comparable by area (e.g. stocking or density per m²) | Plots must line up with distance along the line (e.g. matching field transects) |
 
-On the sample data with the default config, fixed area produces about 1,800 subplots of ~10 m², and fixed length about 1,000 subplots of ~20 m².
+On the sample data with the default config, fixed area produces about 2,000 subplots of ~10 m² (about 200 plots of ~100 m²), and fixed length about 1,000 subplots of ~20 m².
 
 ## 🧩 Pipeline Steps
 

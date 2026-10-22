@@ -18,6 +18,9 @@ from omegaconf import DictConfig, OmegaConf
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Crossings at a shallower angle than this are treated as overlaps.
+MIN_CROSSING_ANGLE = 15  # degrees
+
 
 def update_path_with_suffix(input_path: str, suffix: str) -> str:
     if input_path.startswith("file://"):
@@ -184,6 +187,7 @@ def trim_partial_overlaps(gdf, tolerance=0.5):
     sindex = gdf.sindex
     trimmed_count = 0
     removed_count = 0
+    max_crossing_overlap = 2 * tolerance / np.sin(np.radians(MIN_CROSSING_ANGLE))
 
     for i in range(n):
         if geometries[i] is None:
@@ -199,6 +203,10 @@ def trim_partial_overlaps(gdf, tolerance=0.5):
 
             overlap_len = _measure_overlap(geom_i, geom_j, tolerance)
             if overlap_len <= tolerance * 2:
+                continue
+            # Lines that simply cross also run inside each other's buffer, for
+            # 2 * tolerance / sin(angle) metres; that is a junction, not an overlap.
+            if geom_i.crosses(geom_j) and overlap_len < max_crossing_overlap:
                 continue
 
             fid_i = _get_fid(gdf, i)
