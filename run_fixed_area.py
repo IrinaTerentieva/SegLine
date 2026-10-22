@@ -20,7 +20,7 @@ def main(cfg: DictConfig):
 
     config_dir = "src/config"  # run from the repository root
 
-    if cfg.smoothening.get("perform_smoothing", True):
+    if cfg.smoothing.get("perform_smoothing", True):
         steps = [
             "src/fixed_area/assign_id.py",
             "src/fixed_area/clean_centerlines.py",

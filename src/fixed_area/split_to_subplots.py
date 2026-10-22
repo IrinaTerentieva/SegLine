@@ -676,7 +676,7 @@ def main(cfg: DictConfig):
     footprint_path = update_path_with_suffix(cfg.dataset.ground_footprint, "_sides")
 
     # Get centerline paths based on configuration
-    if cfg.split_to_subplots.get("use_smooth_centerline", True) and cfg.smoothening.get("perform_smoothing", True):
+    if cfg.split_to_subplots.get("use_smooth_centerline", True) and cfg.smoothing.get("perform_smoothing", True):
         centerline_path = update_path_with_suffix(cfg.dataset.centerline, "_centerline_ID")
         smooth_centerline_path = update_path_with_suffix(cfg.dataset.centerline, "_centerline_ID_smooth")
     else:

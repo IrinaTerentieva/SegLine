@@ -338,7 +338,7 @@ def main(cfg: DictConfig):
     regular_centerline_path = update_path_with_suffix(cfg.dataset.centerline, "_centerline_ID")
 
     # Get the smooth centerline path if smoothing is enabled
-    if cfg.split_to_plots.get("use_smooth_centerline", True) and cfg.smoothening.get("perform_smoothing", True):
+    if cfg.split_to_plots.get("use_smooth_centerline", True) and cfg.smoothing.get("perform_smoothing", True):
         smooth_centerline_path = update_path_with_suffix(cfg.dataset.centerline, "_centerline_ID_smooth")
     else:
         smooth_centerline_path = regular_centerline_path

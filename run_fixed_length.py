@@ -21,14 +21,14 @@ def main(cfg: DictConfig):
     config_dir = "src/config"  # run from the repository root
 
     # Fixed-length mode splits along the original centerline; smoothing is not supported here.
-    if cfg.smoothening.get("perform_smoothing", False):
-        logging.warning("smoothening.perform_smoothing is ignored in fixed-length mode.")
+    if cfg.smoothing.get("perform_smoothing", False):
+        logging.warning("smoothing.perform_smoothing is ignored in fixed-length mode.")
 
     steps = [
-        "src/fixed_length/assign_ID_spacing.py",
-        "src/fixed_length/split_to_plots_spacing.py",
-        "src/fixed_length/split_to_sides_spacing.py",
-        "src/fixed_length/split_to_subplots_spacing.py"
+        "src/fixed_length/assign_id.py",
+        "src/fixed_length/split_to_plots.py",
+        "src/fixed_length/split_to_sides.py",
+        "src/fixed_length/split_to_subplots.py"
     ]
 
     for step in steps:

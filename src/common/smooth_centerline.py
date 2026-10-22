@@ -249,9 +249,9 @@ def main(cfg: DictConfig):
     logging.basicConfig(level=cfg.logging.level)
     logging.info("Configuration:\n" + OmegaConf.to_yaml(cfg))
 
-    # Extract assign_ID and smoothening parameters from configuration
+    # Extract assign_ID and smoothing parameters from configuration
     assign_cfg = cfg.dataset
-    smooth_cfg = cfg.smoothening
+    smooth_cfg = cfg.smoothing
 
     # Check if smoothing is enabled
     if not smooth_cfg.get("perform_smoothing", True):

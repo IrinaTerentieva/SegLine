@@ -43,7 +43,7 @@ Always run from the repository root. Each mode takes a few seconds on the sample
 | **Subplots** | Target area (`split_to_subplots.subplot_area`) | Fixed spacing, e.g. every 10 m (`split_to_subplots.perpendicular_spacing`) |
 | **Plot size on wide vs. narrow lines** | Same area; plots get shorter as the line gets wider | Same length; plot area grows with line width |
 | **Centerline cleaning** | Yes: removes duplicate, subset and overlapping centerlines | Not yet |
-| **Centerline smoothing** | Optional (`smoothening.perform_smoothing`) | Not supported |
+| **Centerline smoothing** | Optional (`smoothing.perform_smoothing`) | Not supported |
 | **Code** | `src/fixed_area/` | `src/fixed_length/` |
 | **Use when** | Plots must be comparable by area (e.g. stocking or density per m²) | Plots must line up with distance along the line (e.g. matching field transects) |
 
@@ -127,12 +127,12 @@ All settings are in `src/config/workflow.yaml` (loaded with Hydra via `src/confi
 | `unique_id_length` | Length of the random `UniqueID` |
 | `debug` | Extra logging |
 
-**`smoothening`** (fixed area, optional)
+**`smoothing`** (fixed area, optional)
 
 | Key | Meaning |
 |---|---|
 | `perform_smoothing` | Run the smoothing step |
-| `use_assign_id_output` | Smooth the centerline written by step 1 (otherwise use `smoothening.centerline`) |
+| `use_assign_id_output` | Smooth the centerline written by step 1 (otherwise use `smoothing.centerline`) |
 | `angle_threshold` | Vertices with a sharper angle are smoothed (lower = more smoothing) |
 | `buffer_distance` | Buffer size used for smoothing (larger = stronger) |
 | `num_workers` | Parallel processes |
