@@ -1,49 +1,18 @@
 ### this is workflow.yaml
-### src/config/paths.yaml
+### src/config/workflow.yaml
 
 
-##### SEISMIC LINES
-#dataset:
-#  ground_footprint: "/path/to/data.gpkg"
-#  ground_footprint_layer: null      # null if NO layer
-#  centerline: "/path/to/data.gpkg"
-#  centerline_layer: null            # null if NO layer
-#  debug: false
-#  unique_id_length: 8
-#  min_length: 20
-#
-####### ROADS
-#dataset:
-#  ground_footprint: "/path/to/data.gpkg"
-#  ground_footprint_layer: null      # null if NO layer
-#  centerline: "/path/to/data.gpkg"
-#  centerline_layer: null            # null if NO layer
-#  debug: false
-#  unique_id_length: 3
-#  min_length: 20
-#  width_column: "width_neg1"  # Column name for width values in your data
-
-####### ROADS
-#dataset:
-#  ground_footprint: "/path/to/data.gpkg"
-#  ground_footprint_layer: null      # null if NO layer
-#  centerline: "/path/to/data.gpkg"
-#  centerline_layer: null            # null if NO layer
-#  debug: false
-#  unique_id_length: 6
-#  min_length: 20
-#  width_column: "buffer_width"  # Column name for width values in your data
-
-###### ROADS
 dataset:
-  ground_footprint: "/path/to/data.gpkg"
+  # Sample data (8 seismic lines, 1 x 1 km). Point these at your own FLM outputs,
+  # or put your paths in src/config/local/private.yaml (git-ignored, overrides this file).
+  ground_footprint: "sample_data/sample_footprint.gpkg"
   ground_footprint_layer: null      # null if NO layer
-  centerline: "/path/to/data.gpkg"
+  centerline: "sample_data/sample_centerlines.gpkg"
   centerline_layer: null            # null if NO layer
   debug: false
   unique_id_length: 4
   min_length: 20
-  width_column: "adjusted_width"  # Column name for width values in your data
+  width_column: "width"  # Column name for width values in your data
 
 smoothening:
   use_assign_id_output: true

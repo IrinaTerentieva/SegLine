@@ -18,25 +18,18 @@ def run_step(script_path, config_dir):
 def main(cfg: DictConfig):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] - %(message)s")
 
-    config_dir = "src/config"  # relative path from the utils directory
+    config_dir = "src/config"  # run from the repository root
 
-    if cfg.smoothening.get("perform_smoothing", True):
-        steps = [
-            "src/lidea/assign_id.py",
-            "src/lidea/clean_centerlines.py",
-            "src/utils/smooth_centerline.py",
-            "src/lidea/split_to_plots.py",
-            "src/lidea/split_to_sides.py",
-            "src/lidea/split_to_subplots.py"
-        ]
-    else:
-        steps = [
-            "src/lidea/assign_id.py",
-            "src/lidea/clean_centerlines.py",
-            "src/lidea/split_to_plots.py",
-            "src/lidea/split_to_sides.py",
-            "src/lidea/split_to_subplots.py"
-        ]
+    # Fixed-length mode splits along the original centerline; smoothing is not supported here.
+    if cfg.smoothening.get("perform_smoothing", False):
+        logging.warning("smoothening.perform_smoothing is ignored in fixed-length mode.")
+
+    steps = [
+        "src/fixed_length/assign_ID_spacing.py",
+        "src/fixed_length/split_to_plots_spacing.py",
+        "src/fixed_length/split_to_sides_spacing.py",
+        "src/fixed_length/split_to_subplots_spacing.py"
+    ]
 
     for step in steps:
         run_step(step, config_dir)

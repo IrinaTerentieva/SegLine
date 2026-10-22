@@ -18,29 +18,24 @@ def run_step(script_path, config_dir):
 def main(cfg: DictConfig):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] - %(message)s")
 
-    # Adjust these paths if needed. Here we assume:
-    # - run_pipeline.py is in SegLine/
-    # - your utils scripts are in SegLine/src/utils/
-    # - your config is in src/config/
-    # So from a utils script, the config directory is: ../config
-    config_dir = "src/config"  # relative path from the utils directory
+    config_dir = "src/config"  # run from the repository root
 
     if cfg.smoothening.get("perform_smoothing", True):
         steps = [
-            "src/utils/assign_id.py",
-            "src/utils/clean_centerlines.py",
-            "src/utils/smooth_centerline.py",
-            "src/utils/split_to_plots.py",
-            "src/utils/split_to_sides.py",
-            "src/utils/split_to_subplots.py"
+            "src/fixed_area/assign_id.py",
+            "src/fixed_area/clean_centerlines.py",
+            "src/common/smooth_centerline.py",
+            "src/fixed_area/split_to_plots.py",
+            "src/fixed_area/split_to_sides.py",
+            "src/fixed_area/split_to_subplots.py"
         ]
     else:
         steps = [
-            "src/utils/assign_id.py",
-            "src/utils/clean_centerlines.py",
-            "src/utils/split_to_plots.py",
-            "src/utils/split_to_sides.py",
-            "src/utils/split_to_subplots.py"
+            "src/fixed_area/assign_id.py",
+            "src/fixed_area/clean_centerlines.py",
+            "src/fixed_area/split_to_plots.py",
+            "src/fixed_area/split_to_sides.py",
+            "src/fixed_area/split_to_subplots.py"
         ]
 
     for step in steps:

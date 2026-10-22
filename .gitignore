@@ -84,3 +84,10 @@ outputs
 
 # Local-only config with real data paths (overrides workflow.yaml)
 src/config/local/
+
+# Local archive of superseded / dev code (not published)
+_archive/
+
+# Sample input data is published; pipeline outputs written next to it are not
+!sample_data/sample_footprint.gpkg
+!sample_data/sample_centerlines.gpkg
